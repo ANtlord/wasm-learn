@@ -1,15 +1,29 @@
 extern crate fixedbitset;
 extern crate js_sys;
+extern crate console_error_panic_hook;
+extern crate web_sys;
 
 pub mod entity;
 mod utils;
 mod pattern;
 mod bitmask;
 
-use wasm_bindgen::prelude::*;
+use std::panic;
 use std::fmt;
-use bitmask::Bitmask;
+
+use wasm_bindgen::prelude::*;
 use fixedbitset::FixedBitSet;
+
+use entity::Cell;
+use bitmask::Bitmask;
+
+// A macro to provide `println!(..)`-style syntax for `console.log` logging.
+#[allow(unused_macros)]
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -79,6 +93,14 @@ impl Universe {
                 let idx = self.get_index(row, col);
                 let cell = self.cells[idx as usize];
                 let live_neighbors = self.live_neighbor_count(row, col);
+                // log!(
+                //     "cell[{}, {}] is initially {:?} and has {} live neighbors",
+                //     row,
+                //     col,
+                //     cell,
+                //     live_neighbors
+                // );
+
                 next.set(idx as usize, match (cell, live_neighbors) {
                     (true, x) if x < 2 => false,
                     (true, 2) | (true, 3) => true,
@@ -91,7 +113,32 @@ impl Universe {
         self.cells = next;
     }
 
+    pub fn spawn_glider(&mut self, mut row: u32, mut column: u32) {
+        let init_row = utils::max(row - 3, 3);
+        let init_column = utils::max(column - 3, 3);
+        row = init_row;
+        column = init_column;
+        for elem in &pattern::glider() {
+            let idx = self.get_index(row, column) as usize;
+            log!("spawn glider {}, {}", idx, elem);
+            self.cells.set(idx, *elem);
+
+            row += 1;
+            if row >= init_row + 3 {
+                row = init_row;
+                column += 1;
+            }
+        }
+    }
+
+    pub fn toggle_cell(&mut self, row: u32, column: u32) {
+        let idx = self.get_index(row, column) as usize;
+        let val = !self.cells[idx];
+        self.cells.set(idx, val);
+    }
+
     pub fn new() -> Universe {
+        utils::set_panic_hook();
         let width = 64;
         let height = 64;
 
@@ -109,9 +156,21 @@ impl Universe {
         }
     }
 
-    // pub fn render(&self) -> String {
-    //     self.to_string()
-    // }
+    /// Set the width of the universe.
+    ///
+    /// Resets all cells to the dead state.
+    pub fn set_width(&mut self, width: u32) {
+        self.width = width;
+        self.cells = FixedBitSet::with_capacity((width * self.height) as usize);
+    }
+
+    /// Set the height of the universe.
+    ///
+    /// Resets all cells to the dead state.
+    pub fn set_height(&mut self, height: u32) {
+        self.height = height;
+        self.cells = FixedBitSet::with_capacity((self.width * height) as usize);
+    }
 }
 
 #[cfg(test)]

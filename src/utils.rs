@@ -8,3 +8,11 @@ pub fn set_panic_hook() {
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
 }
+
+pub fn min<T: Ord>(left: T, right: T) -> T {
+    if left < right { left } else { right }
+}
+
+pub fn max<T: Ord>(left: T, right: T) -> T {
+    if left > right { left } else { right }
+}

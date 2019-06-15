@@ -15,4 +15,11 @@ impl Cell {
             Cell::Dead => false,
         }
     }
+
+    fn toggle(&mut self) {
+        *self = match *self {
+            Cell::Dead => Cell::Alive,
+            Cell::Alive => Cell::Dead,
+        };
+    }
 }

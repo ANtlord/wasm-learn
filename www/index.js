@@ -3,9 +3,9 @@ import { Universe, Cell } from "wasm-game-of-life";
 import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
 
 const CELL_SIZE = 5; // px
-const GRID_COLOR = "#FF0000";
-const DEAD_COLOR = "#00FF00";
-const ALIVE_COLOR = "#FF0000";
+const GRID_COLOR = "#434C5E";
+const DEAD_COLOR = "#434C5E";
+const ALIVE_COLOR = "#CCCCFF";
 
 const universe = Universe.new();
 const width = universe.width();
@@ -73,11 +73,61 @@ const drawGrid = () => {
     ctx.stroke();
 };
 
-const renderLoop = () => {
-    universe.tick();
-    drawGrid();
-    drawCells();
-    requestAnimationFrame(renderLoop);
+let animationId = null;
+
+const isPaused = () => {
+    return animationId === null;
+};
+const playPauseButton = document.getElementById("play-pause");
+
+const play = () => {
+    playPauseButton.textContent = "⏸";
+    renderLoop();
 };
 
-requestAnimationFrame(renderLoop);
+const pause = () => {
+    playPauseButton.textContent = "▶";
+    cancelAnimationFrame(animationId);
+    animationId = null;
+};
+
+playPauseButton.addEventListener("click", event => {
+    if (isPaused()) {
+        play();
+    } else {
+        pause();
+    }
+});
+
+// This function is the same as before, except the
+// result of `requestAnimationFrame` is assigned to
+// `animationId`.
+const renderLoop = () => {
+    drawGrid();
+    drawCells();
+    universe.tick();
+    animationId = requestAnimationFrame(renderLoop);
+};
+play();
+
+canvas.addEventListener("click", ev => {
+    const boundingRect = canvas.getBoundingClientRect();
+
+    const scaleX = canvas.width / boundingRect.width;
+    const scaleY = canvas.height / boundingRect.height;
+
+    const canvasLeft = (ev.clientX - boundingRect.left) * scaleX;
+    const canvasTop = (ev.clientY - boundingRect.top) * scaleY;
+
+    const row = Math.min(Math.floor(canvasTop / (CELL_SIZE + 1)), height - 1);
+    const col = Math.min(Math.floor(canvasLeft / (CELL_SIZE + 1)), width - 1);
+
+    if (ev.ctrlKey) {
+        universe.spawn_glider(row, col);
+    } else {
+        universe.toggle_cell(row, col);
+    }
+
+    drawGrid();
+    drawCells();
+});

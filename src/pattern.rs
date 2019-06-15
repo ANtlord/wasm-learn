@@ -48,3 +48,11 @@ pub fn random(width: u32, height: u32) -> Vec<Cell> {
         if Math::random() < 0.5 {Cell::Alive} else {Cell::Dead}
     }).collect()
 }
+
+pub fn glider() -> [bool; 9] {
+    [
+        false, false, true,
+        true, false, true,
+        false, true, true,
+    ]
+}
