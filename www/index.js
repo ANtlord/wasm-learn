@@ -21,33 +21,29 @@ const getIndex = (row, column) => {
     return row * width + column;
 };
 
-const flags_in_item = 32;
-
-const slot_index = (index) => {
-    const len = width * height;
-    const slot_index = Math.floor((len - index - 1) / flags_in_item);
-    return slot_index;
-}
-
-const shift = (index) => {
-    return index % flags_in_item;
-}
-
-const isBitUp = (maskArr, index) => {
-    const res = maskArr[slot_index(index)] >> shift(index) & 1 == 1;
-    return res;
-}
+const bitIsSet = (n, arr) => {
+    const byte = Math.floor(n / 8);
+    const mask = 1 << (n % 8);
+    return (arr[byte] & mask) === mask;
+};
 
 const drawCells = () => {
     const cellsPtr = universe.cells();
-    const cells = new Uint32Array(memory.buffer, cellsPtr, width * height / flags_in_item + 1);
+
+    // This is updated!
+    const cells = new Uint8Array(memory.buffer, cellsPtr, width * height / 8);
+
     ctx.beginPath();
+
     for (let row = 0; row < height; row++) {
         for (let col = 0; col < width; col++) {
             const idx = getIndex(row, col);
-            ctx.fillStyle = isBitUp(cells, idx)
+
+            // This is updated!
+            ctx.fillStyle = bitIsSet(idx, cells)
                 ? ALIVE_COLOR
                 : DEAD_COLOR;
+
             ctx.fillRect(
                 col * (CELL_SIZE + 1) + 1,
                 row * (CELL_SIZE + 1) + 1,
@@ -56,6 +52,7 @@ const drawCells = () => {
             );
         }
     }
+
     ctx.stroke();
 };
 
