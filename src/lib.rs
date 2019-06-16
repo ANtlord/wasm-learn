@@ -36,6 +36,22 @@ extern {
     fn alert(s: &str);
 }
 
+pub struct Timer<'a> {
+    name: &'a str,
+}
+
+impl<'a> Timer<'a> {
+    pub fn new(name: &'a str) -> Timer<'a> {
+        web_sys::console::time_with_label(name);
+        Timer { name }
+    }
+}
+
+impl<'a> Drop for Timer<'a> {
+    fn drop(&mut self) {
+        web_sys::console::time_end_with_label(self.name);
+    }
+}
 // #[wasm_bindgen]
 // pub fn greet(name: &str) {
 //     alert(&format!("Hello, {}!", name));
@@ -93,13 +109,6 @@ impl Universe {
                 let idx = self.get_index(row, col);
                 let cell = self.cells[idx as usize];
                 let live_neighbors = self.live_neighbor_count(row, col);
-                // log!(
-                //     "cell[{}, {}] is initially {:?} and has {} live neighbors",
-                //     row,
-                //     col,
-                //     cell,
-                //     live_neighbors
-                // );
 
                 next.set(idx as usize, match (cell, live_neighbors) {
                     (true, x) if x < 2 => false,
@@ -120,7 +129,6 @@ impl Universe {
         column = init_column;
         for elem in &pattern::glider() {
             let idx = self.get_index(row, column) as usize;
-            log!("spawn glider {}, {}", idx, elem);
             self.cells.set(idx, *elem);
 
             row += 1;
@@ -139,8 +147,8 @@ impl Universe {
 
     pub fn new() -> Universe {
         utils::set_panic_hook();
-        let width = 64;
-        let height = 64;
+        let width = 128;
+        let height = 128;
 
         let size = (width * height) as usize;
         let mut cells = FixedBitSet::with_capacity(size);
