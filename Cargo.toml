@@ -5,7 +5,10 @@ authors = ["fantlord"]
 edition = "2018"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = [
+    "cdylib", 
+    "rlib"
+]
 
 [features]
 default = ["console_error_panic_hook"]
@@ -33,6 +36,7 @@ wasm-bindgen-test = "0.2"
 
 [profile.release]
 # Tell `rustc` to optimize for small code size.
+# debug = true
 opt-level = "s"
 
 [dependencies.web-sys]
@@ -40,3 +44,6 @@ version = "0.3"
 features = [
     "console",
 ]
+
+[profile.bench]
+debug = true
