@@ -190,8 +190,10 @@ impl Universe {
 
         let size = (width * height) as usize;
         let mut cells = FixedBitSet::with_capacity(size);
+        let pat = pattern::space_ship(width, height);
 
         for i in 0..size {
+            // cells.set(i, pat[i].to_bool());
             cells.set(i, i % 2 == 0 || i % 7 == 0);
         }
 

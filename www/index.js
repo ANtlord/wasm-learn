@@ -15,7 +15,153 @@ const canvas = document.getElementById("game-of-life-canvas");
 canvas.height = (CELL_SIZE + 1) * height + 1;
 canvas.width = (CELL_SIZE + 1) * width + 1;
 
-const ctx = canvas.getContext('2d');
+const gl = canvas.getContext('webgl', {
+    antialias: true,
+});
+if (!gl) {
+    alert('WebGL not working');
+}
+gl.lineWidth(1)
+
+function createShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+    if (success) {
+        return shader;
+    }
+
+    console.log(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+}
+
+function createProgram(gl, vertexShader, fragmentShader) {
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    const success = gl.getProgramParameter(program, gl.LINK_STATUS);
+    if (success) {
+        return program;
+    }
+
+    console.log(gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+}
+
+
+const vertexShaderSource = document.getElementById("2d-vertex-shader").text;
+const fragmentShaderSource = document.getElementById("2d-fragment-shader").text;
+const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+const simplePointProgram = createProgram(gl, vertexShader, fragmentShader);
+
+
+class GridShaderProgram {
+    constructor(gl, program, primitiveType, positions) {
+        this.gl = gl;
+        this.program = program;
+        this.bufferElementsPerIteration = 2;
+
+        this.positionAttributeLocation = this.gl.getAttribLocation(this.program, "a_position");
+        this.resolutionUniformLocation = this.gl.getUniformLocation(this.program, "u_resolution");
+        this.positionBuffer = gl.createBuffer();
+        this.primitiveType = primitiveType;
+
+        // can be dynamic.
+        this.updatePositions(positions);
+    }
+
+    /**
+     * Call to set new positions for vertex shader data.
+     */
+    updatePositions(positions) {
+        this.positions = positions;
+        this.loadVideoDataBuffer();
+    }
+
+    run() {
+        this.setPointerReadFrom();
+        this.setReadingFashion();
+        this.draw();
+    }
+
+    draw() {
+        const offset = 0;
+        const count = this.positions.length / this.bufferElementsPerIteration;
+        this.gl.drawArrays(this.primitiveType, offset, count);
+    }
+    
+    loadVideoDataBuffer() {
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.positions, this.gl.STATIC_DRAW);
+    }
+
+    setPointerReadFrom() {
+        this.gl.useProgram(this.program);
+        this.gl.enableVertexAttribArray(this.positionAttributeLocation);
+        this.gl.uniform2f(this.resolutionUniformLocation, this.gl.canvas.width, this.gl.canvas.height);
+    }
+
+    setReadingFashion() {
+        // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+        const size = this.bufferElementsPerIteration;  // 2 components per iteration
+        const type = this.gl.FLOAT;   // the data is 32bit floats
+        const normalize = false; // don't normalize the data
+        const stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+        const offset = 0;        // start at the beginning of the buffer
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+        this.gl.vertexAttribPointer(
+            this.positionAttributeLocation, size, type, normalize, stride, offset,
+        );
+    }
+}
+
+const norm = (x) => {
+    // const val = canvas.width / 2;
+    // return (x - val) / val;
+    return x;
+}
+
+const computeGridPositions = () => {
+    const res = new Float32Array(4 * (width + 1) + 4 * (height + 1));
+    let counter = 0;
+
+    for (let i = 0; i <= width; i++) {
+        res[counter++] = norm(i * (CELL_SIZE + 1) + 1);
+        res[counter++] = norm(0);
+        res[counter++] = norm(i * (CELL_SIZE + 1) + 1);
+        res[counter++] = norm((CELL_SIZE + 1) * height + 1);
+    }
+    // Horizontal lines.
+    for (let j = 0; j <= height; j++) {
+        res[counter++] = norm(0);
+        res[counter++] = norm(j * (CELL_SIZE + 1) + 1);
+        res[counter++] = norm((CELL_SIZE + 1) * width + 1);
+        res[counter++] = norm(j * (CELL_SIZE + 1) + 1);
+    }
+    return res;
+}
+
+const gridPositions = computeGridPositions();
+const fieldGridShaderProgram = new GridShaderProgram(
+    gl, simplePointProgram, gl.LINES, gridPositions, 
+);
+const cellPositions = new Float32Array([
+    0.0, 0.0,
+    0.0, 100.0,
+    100.0, 0.0,
+
+    100.0, 0.0,
+    0.0, 100.0,
+    100.0, 100.0,
+]);
+const singleCellShaderProgram = new GridShaderProgram(gl, simplePointProgram, gl.TRIANGLES, cellPositions);
+
+gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+gl.clearColor(0,0,0,1);
+gl.clear(gl.COLOR_BUFFER_BIT);
 
 const getIndex = (row, column) => {
     return row * width + column;
@@ -27,15 +173,48 @@ const bitIsSet = (n, arr) => {
     return (arr[byte] & mask) === mask;
 };
 
+const cellVertexData = new Float32Array(12 * width * height);
+
 const drawCells = () => {
     const cellsPtr = universe.cells();
+    const cells = new Uint8Array(memory.buffer, cellsPtr, width * height / 8);
+    let count = 0;
+
+    for (let row = 0; row < height; row++) {
+        for (let col = 0; col < width; col++) {
+            const idx = getIndex(row, col);
+            if (!bitIsSet(idx, cells)) {
+                continue;
+            }
+            const startx = col * (CELL_SIZE + 1) + 1;
+            const starty = row * (CELL_SIZE + 1) + 1;
+            // left top triangle
+            cellVertexData[count++] = startx;
+            cellVertexData[count++] = starty;
+
+            cellVertexData[count++] = startx + CELL_SIZE;
+            cellVertexData[count++] = starty;
+
+            cellVertexData[count++] = startx;
+            cellVertexData[count++] = starty + CELL_SIZE;
+
+            // left botton triangle
+            cellVertexData[count++] = startx;
+            cellVertexData[count++] = starty + CELL_SIZE;
+
+            cellVertexData[count++] = startx + CELL_SIZE;
+            cellVertexData[count++] = starty;
+
+            cellVertexData[count++] = startx + CELL_SIZE;
+            cellVertexData[count++] = starty + CELL_SIZE;
+        }
+    }
+    singleCellShaderProgram.updatePositions(cellVertexData.slice(0, count));
+    singleCellShaderProgram.run();
+    return;
 
     // This is updated!
-    const cells = new Uint8Array(memory.buffer, cellsPtr, width * height / 8);
 
-    ctx.beginPath();
-
-    ctx.fillStyle = ALIVE_COLOR;
     for (let row = 0; row < height; row++) {
         for (let col = 0; col < width; col++) {
             const idx = getIndex(row, col);
@@ -47,7 +226,7 @@ const drawCells = () => {
             //    ? ALIVE_COLOR
             //    : DEAD_COLOR;
 
-            ctx.fillRect(
+            gl.fillRect(
                 col * (CELL_SIZE + 1) + 1,
                 row * (CELL_SIZE + 1) + 1,
                 CELL_SIZE,
@@ -56,7 +235,7 @@ const drawCells = () => {
         }
     }
 
-    ctx.fillStyle = DEAD_COLOR;
+    gl.fillStyle = DEAD_COLOR;
     for (let row = 0; row < height; row++) {
         for (let col = 0; col < width; col++) {
             const idx = getIndex(row, col);
@@ -68,7 +247,7 @@ const drawCells = () => {
             //    ? ALIVE_COLOR
             //    : DEAD_COLOR;
 
-            ctx.fillRect(
+            gl.fillRect(
                 col * (CELL_SIZE + 1) + 1,
                 row * (CELL_SIZE + 1) + 1,
                 CELL_SIZE,
@@ -77,24 +256,12 @@ const drawCells = () => {
         }
     }
 
-    ctx.stroke();
+    gl.stroke();
 };
 
+
 const drawGrid = () => {
-    ctx.beginPath();
-    ctx.strokeStyle = GRID_COLOR;
-    // Vertical lines.
-    for (let i = 0; i <= width; i++) {
-        ctx.moveTo(i * (CELL_SIZE + 1) + 1, 0);
-        ctx.lineTo(i * (CELL_SIZE + 1) + 1, (CELL_SIZE + 1) * height + 1);
-    }
-    // Horizontal lines.
-    for (let j = 0; j <= height; j++) {
-        ctx.moveTo(0,
-            j * (CELL_SIZE + 1) + 1);
-        ctx.lineTo((CELL_SIZE + 1) * width + 1, j * (CELL_SIZE + 1) + 1);
-    }
-    ctx.stroke();
+    fieldGridShaderProgram.run();
 };
 
 const fps = new class {
@@ -197,6 +364,6 @@ canvas.addEventListener("click", ev => {
         universe.toggle_cell(row, col);
     }
 
-    drawGrid();
-    drawCells();
+    // drawGrid();
+    // drawCells();
 });
