@@ -4,8 +4,10 @@ import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
 
 const CELL_SIZE = 5; // px
 const GRID_COLOR = "#434C5E";
+const GRID_COLOR_A = new Float32Array([0.2627, 0.298, 0.368]);
 const DEAD_COLOR = "#434C5E";
 const ALIVE_COLOR = "#CCCCFF";
+const ALIVE_COLOR_A = new Float32Array([0.8, 0.8, 1]);
 
 const universe = Universe.new();
 const width = universe.width();
@@ -66,11 +68,18 @@ class GridShaderProgram {
 
         this.positionAttributeLocation = this.gl.getAttribLocation(this.program, "a_position");
         this.resolutionUniformLocation = this.gl.getUniformLocation(this.program, "u_resolution");
+        this.colorUniformLocation = this.gl.getUniformLocation(this.program, "u_color");
+
         this.positionBuffer = gl.createBuffer();
         this.primitiveType = primitiveType;
 
         // can be dynamic.
         this.updatePositions(positions);
+    }
+
+    setColor(color) {
+        this.gl.useProgram(this.program);
+        this.gl.uniform3fv(this.colorUniformLocation, color);
     }
 
     /**
@@ -209,6 +218,7 @@ const drawCells = () => {
             cellVertexData[count++] = starty + CELL_SIZE;
         }
     }
+    singleCellShaderProgram.setColor(ALIVE_COLOR_A);
     singleCellShaderProgram.updatePositions(cellVertexData.slice(0, count));
     singleCellShaderProgram.run();
     return;
@@ -261,6 +271,7 @@ const drawCells = () => {
 
 
 const drawGrid = () => {
+    fieldGridShaderProgram.setColor(GRID_COLOR_A);
     fieldGridShaderProgram.run();
 };
 
@@ -364,6 +375,6 @@ canvas.addEventListener("click", ev => {
         universe.toggle_cell(row, col);
     }
 
-    // drawGrid();
-    // drawCells();
+    drawGrid();
+    drawCells();
 });
