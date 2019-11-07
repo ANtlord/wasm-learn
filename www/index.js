@@ -34,6 +34,7 @@ function createShader(gl, type, source) {
         return shader;
     }
 
+
     console.log(gl.getShaderInfoLog(shader));
     gl.deleteShader(shader);
 }
@@ -348,9 +349,9 @@ playPauseButton.addEventListener("click", event => {
 // `animationId`.
 const renderLoop = () => {
     fps.render();
-    for (let i = 0; i < 9; i++) {
-        universe.tick();
-    }
+    // for (let i = 0; i < 9; i++) {
+    universe.tick();
+    // }
     drawGrid();
     drawCells();
     animationId = requestAnimationFrame(renderLoop);
