@@ -1,3 +1,4 @@
+"use strict"
 import * as wasm from "wasm-game-of-life";
 import { Universe, Cell } from "wasm-game-of-life";
 import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
@@ -8,58 +9,6 @@ const GRID_COLOR_A = new Float32Array([0.2627, 0.298, 0.368]);
 const DEAD_COLOR = "#434C5E";
 const ALIVE_COLOR = "#CCCCFF";
 const ALIVE_COLOR_A = new Float32Array([0.8, 0.8, 1]);
-
-const universe = Universe.new();
-const width = universe.width();
-const height = universe.height();
-
-const canvas = document.getElementById("game-of-life-canvas");
-canvas.height = (CELL_SIZE + 1) * height + 1;
-canvas.width = (CELL_SIZE + 1) * width + 1;
-
-const gl = canvas.getContext('webgl', {
-    antialias: true,
-});
-if (!gl) {
-    alert('WebGL not working');
-}
-gl.lineWidth(1)
-
-function createShader(gl, type, source) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-    if (success) {
-        return shader;
-    }
-
-
-    console.log(gl.getShaderInfoLog(shader));
-    gl.deleteShader(shader);
-}
-
-function createProgram(gl, vertexShader, fragmentShader) {
-    const program = gl.createProgram();
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    const success = gl.getProgramParameter(program, gl.LINK_STATUS);
-    if (success) {
-        return program;
-    }
-
-    console.log(gl.getProgramInfoLog(program));
-    gl.deleteProgram(program);
-}
-
-
-const vertexShaderSource = document.getElementById("2d-vertex-shader").text;
-const fragmentShaderSource = document.getElementById("2d-fragment-shader").text;
-const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
-const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-const simplePointProgram = createProgram(gl, vertexShader, fragmentShader);
-
 
 class GridShaderProgram {
     constructor(gl, program, primitiveType, positions) {
@@ -128,13 +77,39 @@ class GridShaderProgram {
     }
 }
 
+function createShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+    if (success) {
+        return shader;
+    }
+    console.log(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+}
+
+function createProgram(gl, vertexShader, fragmentShader) {
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    const success = gl.getProgramParameter(program, gl.LINK_STATUS);
+    if (success) {
+        return program;
+    }
+
+    console.log(gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+}
+
 const norm = (x) => {
     // const val = canvas.width / 2;
     // return (x - val) / val;
     return x;
 }
 
-const computeGridPositions = () => {
+const computeGridPositions = (width, height) => {
     const res = new Float32Array(4 * (width + 1) + 4 * (height + 1));
     let counter = 0;
 
@@ -154,129 +129,111 @@ const computeGridPositions = () => {
     return res;
 }
 
-const gridPositions = computeGridPositions();
-const fieldGridShaderProgram = new GridShaderProgram(
-    gl, simplePointProgram, gl.LINES, gridPositions, 
-);
-const cellPositions = new Float32Array([
-    0.0, 0.0,
-    0.0, 100.0,
-    100.0, 0.0,
-
-    100.0, 0.0,
-    0.0, 100.0,
-    100.0, 100.0,
-]);
-const singleCellShaderProgram = new GridShaderProgram(gl, simplePointProgram, gl.TRIANGLES, cellPositions);
-
-gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-gl.clearColor(0,0,0,1);
-gl.clear(gl.COLOR_BUFFER_BIT);
-
-const getIndex = (row, column) => {
-    return row * width + column;
-};
-
 const bitIsSet = (n, arr) => {
     const byte = Math.floor(n / 8);
     const mask = 1 << (n % 8);
     return (arr[byte] & mask) === mask;
 };
 
-const cellVertexData = new Float32Array(12 * width * height);
-
-const drawCells = () => {
-    const cellsPtr = universe.cells();
-    const cells = new Uint8Array(memory.buffer, cellsPtr, width * height / 8);
-    let count = 0;
-
-    for (let row = 0; row < height; row++) {
-        for (let col = 0; col < width; col++) {
-            const idx = getIndex(row, col);
-            if (!bitIsSet(idx, cells)) {
-                continue;
-            }
-            const startx = col * (CELL_SIZE + 1) + 1;
-            const starty = row * (CELL_SIZE + 1) + 1;
-            // left top triangle
-            cellVertexData[count++] = startx;
-            cellVertexData[count++] = starty;
-
-            cellVertexData[count++] = startx + CELL_SIZE;
-            cellVertexData[count++] = starty;
-
-            cellVertexData[count++] = startx;
-            cellVertexData[count++] = starty + CELL_SIZE;
-
-            // left botton triangle
-            cellVertexData[count++] = startx;
-            cellVertexData[count++] = starty + CELL_SIZE;
-
-            cellVertexData[count++] = startx + CELL_SIZE;
-            cellVertexData[count++] = starty;
-
-            cellVertexData[count++] = startx + CELL_SIZE;
-            cellVertexData[count++] = starty + CELL_SIZE;
-        }
-    }
-    singleCellShaderProgram.setColor(ALIVE_COLOR_A);
-    singleCellShaderProgram.updatePositions(cellVertexData.slice(0, count));
-    singleCellShaderProgram.run();
-    return;
-
-    // This is updated!
-
-    for (let row = 0; row < height; row++) {
-        for (let col = 0; col < width; col++) {
-            const idx = getIndex(row, col);
-
-            // This is updated!
-            if (!bitIsSet(idx, cells)) {
-                continue;
-            }
-            //    ? ALIVE_COLOR
-            //    : DEAD_COLOR;
-
-            gl.fillRect(
-                col * (CELL_SIZE + 1) + 1,
-                row * (CELL_SIZE + 1) + 1,
-                CELL_SIZE,
-                CELL_SIZE
-            );
-        }
+class App {
+    constructor(universe, gl) {
+        this.universe = universe;
+        this.universeWidth = universe.width();
+        this.universeHeight = universe.height();
+        this.gl = gl;
     }
 
-    gl.fillStyle = DEAD_COLOR;
-    for (let row = 0; row < height; row++) {
-        for (let col = 0; col < width; col++) {
-            const idx = getIndex(row, col);
-
-            // This is updated!
-            if (bitIsSet(idx, cells)) {
-                continue;
-            }
-            //    ? ALIVE_COLOR
-            //    : DEAD_COLOR;
-
-            gl.fillRect(
-                col * (CELL_SIZE + 1) + 1,
-                row * (CELL_SIZE + 1) + 1,
-                CELL_SIZE,
-                CELL_SIZE
-            );
-        }
+    getIndex(row, column){
+        return row * this.universeWidth + column;
     }
 
-    gl.stroke();
-};
+    drawCells(cellVertexData, singleCellShaderProgram) {
+        const cellsPtr = this.universe.cells();
+        const cells = new Uint8Array(memory.buffer, cellsPtr, this.universeWidth * this.universeHeight / 8);
+        let count = 0;
 
+        for (let row = 0; row < this.universeHeight; row++) {
+            for (let col = 0; col < this.universeWidth; col++) {
+                const idx = this.getIndex(row, col);
+                if (!bitIsSet(idx, cells)) {
+                    continue;
+                }
+                const startx = col * (CELL_SIZE + 1) + 1;
+                const starty = row * (CELL_SIZE + 1) + 1;
+                // left top triangle
+                cellVertexData[count++] = startx;
+                cellVertexData[count++] = starty;
 
-const drawGrid = () => {
-    fieldGridShaderProgram.setColor(GRID_COLOR_A);
-    fieldGridShaderProgram.run();
-};
+                cellVertexData[count++] = startx + CELL_SIZE;
+                cellVertexData[count++] = starty;
 
-const fps = new class {
+                cellVertexData[count++] = startx;
+                cellVertexData[count++] = starty + CELL_SIZE;
+
+                // left botton triangle
+                cellVertexData[count++] = startx;
+                cellVertexData[count++] = starty + CELL_SIZE;
+
+                cellVertexData[count++] = startx + CELL_SIZE;
+                cellVertexData[count++] = starty;
+
+                cellVertexData[count++] = startx + CELL_SIZE;
+                cellVertexData[count++] = starty + CELL_SIZE;
+            }
+        }
+        singleCellShaderProgram.setColor(ALIVE_COLOR_A);
+        singleCellShaderProgram.updatePositions(cellVertexData.slice(0, count));
+        singleCellShaderProgram.run();
+        return;
+
+        // This is updated!
+
+        for (let row = 0; row < height; row++) {
+            for (let col = 0; col < width; col++) {
+                const idx = getIndex(row, col);
+
+                // This is updated!
+                if (!bitIsSet(idx, cells)) {
+                    continue;
+                }
+                //    ? ALIVE_COLOR
+                //    : DEAD_COLOR;
+
+                this.gl.fillRect(
+                    col * (CELL_SIZE + 1) + 1,
+                    row * (CELL_SIZE + 1) + 1,
+                    CELL_SIZE,
+                    CELL_SIZE
+                );
+            }
+        }
+
+        this.gl.fillStyle = DEAD_COLOR;
+        for (let row = 0; row < height; row++) {
+            for (let col = 0; col < width; col++) {
+                const idx = getIndex(row, col);
+
+                // This is updated!
+                if (bitIsSet(idx, cells)) {
+                    continue;
+                }
+                //    ? ALIVE_COLOR
+                //    : DEAD_COLOR;
+
+                this.gl.fillRect(
+                    col * (CELL_SIZE + 1) + 1,
+                    row * (CELL_SIZE + 1) + 1,
+                    CELL_SIZE,
+                    CELL_SIZE
+                );
+            }
+        }
+
+        this.gl.stroke();
+    }
+}
+
+class FPS{
     constructor() {
         this.fps = document.getElementById("fps");
         this.frames = [];
@@ -318,64 +275,121 @@ max of last 100 = ${Math.round(max)}
         `.trim();
     }
 };
-let animationId = null;
 
-const isPaused = () => {
-    return animationId === null;
-};
-const playPauseButton = document.getElementById("play-pause");
+(function(){
+    const universe = Universe.new();
+    const universeWidth = universe.width();
+    const universeHeight = universe.height();
 
-const play = () => {
-    playPauseButton.textContent = "⏸";
-    renderLoop();
-};
-
-const pause = () => {
-    playPauseButton.textContent = "▶";
-    cancelAnimationFrame(animationId);
-    animationId = null;
-};
-
-playPauseButton.addEventListener("click", event => {
-    if (isPaused()) {
-        play();
-    } else {
-        pause();
-    }
-});
-
-// This function is the same as before, except the
-// result of `requestAnimationFrame` is assigned to
-// `animationId`.
-const renderLoop = () => {
-    fps.render();
-    // for (let i = 0; i < 9; i++) {
-    universe.tick();
-    // }
-    drawGrid();
-    drawCells();
-    animationId = requestAnimationFrame(renderLoop);
-};
-play();
-
-canvas.addEventListener("click", ev => {
-    const boundingRect = canvas.getBoundingClientRect();
-
-    const scaleX = canvas.width / boundingRect.width;
-    const scaleY = canvas.height / boundingRect.height;
-
-    const canvasLeft = (ev.clientX - boundingRect.left) * scaleX;
-    const canvasTop = (ev.clientY - boundingRect.top) * scaleY;
-
-    const row = Math.min(Math.floor(canvasTop / (CELL_SIZE + 1)), height - 1);
-    const col = Math.min(Math.floor(canvasLeft / (CELL_SIZE + 1)), width - 1);
-
-    if (ev.ctrlKey) {
-        universe.spawn_glider(row, col);
-    } else {
-        universe.toggle_cell(row, col);
+    const canvas = document.getElementById("game-of-life-canvas");
+    canvas.height = (CELL_SIZE + 1) * universeHeight + 1;
+    canvas.width = (CELL_SIZE + 1) * universeWidth + 1;
+    const gl = canvas.getContext('webgl', {
+        antialias: true,
+    });
+    if (!gl) {
+        alert('WebGL not working');
+        return;
     }
 
-    drawGrid();
-    drawCells();
-});
+    gl.lineWidth(1);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.clearColor(0,0,0,1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    const vertexShaderSource = document.getElementById("2d-vertex-shader").text;
+    const fragmentShaderSource = document.getElementById("2d-fragment-shader").text;
+
+    const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+    const simplePointProgram = createProgram(gl, vertexShader, fragmentShader);
+
+    const gridPositions = computeGridPositions(universeWidth, universeHeight);
+    const fieldGridShaderProgram = new GridShaderProgram(
+        gl, simplePointProgram, gl.LINES, gridPositions, 
+    );
+
+    const cellPositions = new Float32Array([
+        0.0, 0.0,
+        0.0, 100.0,
+        100.0, 0.0,
+
+        100.0, 0.0,
+        0.0, 100.0,
+        100.0, 100.0,
+    ]);
+
+    const singleCellShaderProgram = new GridShaderProgram(gl, simplePointProgram, gl.TRIANGLES, cellPositions);
+    const cellVertexData = new Float32Array(12 * universeWidth * universeHeight);
+
+    const fps = new FPS();
+
+    let animationId = null;
+    const isPaused = () => {
+        return animationId === null;
+    };
+
+    const drawGrid = () => {
+        fieldGridShaderProgram.setColor(GRID_COLOR_A);
+        fieldGridShaderProgram.run();
+    };
+
+    const playPauseButton = document.getElementById("play-pause");
+
+    const play = () => {
+        playPauseButton.textContent = "⏸";
+        renderLoop();
+    };
+
+    const pause = () => {
+        playPauseButton.textContent = "▶";
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    };
+
+    playPauseButton.addEventListener("click", event => {
+        if (isPaused()) {
+            play();
+        } else {
+            pause();
+        }
+    });
+
+    const app = new App(universe, gl);
+
+    // This function is the same as before, except the
+    // result of `requestAnimationFrame` is assigned to
+    // `animationId`.
+    const renderLoop = () => {
+        fps.render();
+        // for (let i = 0; i < 9; i++) {
+        universe.tick();
+        // }
+        drawGrid();
+        app.drawCells(cellVertexData, singleCellShaderProgram);
+        animationId = requestAnimationFrame(renderLoop);
+    };
+    play();
+
+    canvas.addEventListener("click", ev => {
+        const boundingRect = canvas.getBoundingClientRect();
+
+        const scaleX = canvas.width / boundingRect.width;
+        const scaleY = canvas.height / boundingRect.height;
+
+        const canvasLeft = (ev.clientX - boundingRect.left) * scaleX;
+        const canvasTop = (ev.clientY - boundingRect.top) * scaleY;
+
+        const row = Math.min(Math.floor(canvasTop / (CELL_SIZE + 1)), universeHeight - 1);
+        const col = Math.min(Math.floor(canvasLeft / (CELL_SIZE + 1)), universeWidth - 1);
+
+        if (ev.ctrlKey) {
+            universe.spawn_glider(row, col);
+        } else {
+            universe.toggle_cell(row, col);
+        }
+
+        drawGrid();
+        app.drawCells(cellVertexData, singleCellShaderProgram);
+    });
+})();
