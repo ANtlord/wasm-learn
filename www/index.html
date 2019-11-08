@@ -28,7 +28,8 @@ body {
         // an attribute will receive data from a buffer
         attribute vec2 a_position;
         uniform vec2 u_resolution;
-		varying vec3 v_color;
+		varying vec2 v_texCoord;
+		// varying vec3 v_color;
 
         // all shaders have a main function
         void main() {
@@ -42,8 +43,9 @@ body {
             vec2 clipSpace = zeroToTwo - 1.0;
 
 		 	float val = pixelsToLocalCoordinates.x * abs(pixelsToLocalCoordinates.y - 1.);
-		 	v_color = vec3(val, val, val);
-            gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+		 	v_texCoord = pixelsToLocalCoordinates;
+		 	// v_color = vec3(val, val, val);
+            gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);;
         }
     </script>
 
@@ -53,13 +55,16 @@ body {
         // to pick one. mediump is a good default
         precision mediump float;
         uniform vec3 u_color;
-		varying vec3 v_color;
+		uniform sampler2D u_image;
+		varying vec2 v_texCoord;
+		// varying vec3 v_color;
 
         void main() {
             // gl_FragColor is a special variable a fragment shader
             // is responsible for setting
-            // gl_FragColor = vec4(u_color, 1);
-            gl_FragColor = vec4(v_color, 1);
+		    gl_FragColor = texture2D(u_image, v_texCoord) + texture2D(u_image, v_texCoord);
+            //gl_FragColor = vec4(u_color, 1);
+            //gl_FragColor = vec4(v_color, 1);
         }
     </script>
 

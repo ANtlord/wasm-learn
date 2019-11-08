@@ -276,14 +276,70 @@ max of last 100 = ${Math.round(max)}
     }
 };
 
+function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
+    const squareHeight = 300.0;
+    const squareWidth = 760.0;
+    const cellPositions = new Float32Array([
+        0.0, 0.0,
+        0.0, squareHeight,
+        squareWidth, 0.0,
+
+        squareWidth, 0.0,
+        0.0, squareHeight,
+        squareWidth, squareHeight,
+    ]);
+
+    const battlecruiserImage = new Image();
+    battlecruiserImage.src = 'http://localhost:8080/image.png';
+    battlecruiserImage.onload = () => {
+        // vertex shader set a_position
+        gl.useProgram(program);
+        const gBuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, gBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, cellPositions, gl.STATIC_DRAW);
+
+        const a_position_loc = gl.getAttribLocation(program, "a_position");
+        gl.enableVertexAttribArray(a_position_loc);
+        gl.vertexAttribPointer(a_position_loc, 2, gl.FLOAT, false, 0, 0);
+
+        // vertex shader set u_resolution
+        const u_resolution_loc = gl.getUniformLocation(program, "u_resolution");
+        gl.uniform2fv(u_resolution_loc, [gl.canvas.width, gl.canvas.height]);
+
+        // fragment shader set u_color
+        const u_color_loc = gl.getUniformLocation(program, "u_color");
+        gl.uniform3fv(u_color_loc, [.5, .0, .5]);
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+
+        // Set the parameters so we can render any size image.
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+        // Upload the image into the texture.
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, battlecruiserImage);
+
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        // const animationId = requestAnimationFrame(() => {
+        // });
+        console.log(4);
+    }
+}
+
 (function(){
     const universe = Universe.new();
     const universeWidth = universe.width();
     const universeHeight = universe.height();
 
     const canvas = document.getElementById("game-of-life-canvas");
-    canvas.height = (CELL_SIZE + 1) * universeHeight + 1;
-    canvas.width = (CELL_SIZE + 1) * universeWidth + 1;
+    // canvas.height = (CELL_SIZE + 1) * universeHeight + 1;
+    // canvas.width = (CELL_SIZE + 1) * universeWidth + 1;
+    canvas.height = 600;
+    canvas.width = 800;
     const gl = canvas.getContext('webgl', {
         antialias: true,
     });
@@ -309,6 +365,8 @@ max of last 100 = ${Math.round(max)}
         gl, simplePointProgram, gl.LINES, gridPositions, 
     );
 
+    loadBufferLearn(gl, vertexShader, fragmentShader, simplePointProgram)
+    return;
     const cellPositions = new Float32Array([
         0.0, 0.0,
         0.0, 100.0,
