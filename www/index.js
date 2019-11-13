@@ -2,6 +2,10 @@
 import * as wasm from "wasm-game-of-life";
 import { Universe, Cell } from "wasm-game-of-life";
 import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
+import { GridShaderProgram } from "./grid.js";
+import { createShader, createProgram } from "./shader.js";
+import { App } from "./gameApp.js";
+import { FPS } from "./fps.js";
 
 const CELL_SIZE = 5; // px
 const GRID_COLOR = "#434C5E";
@@ -10,123 +14,10 @@ const DEAD_COLOR = "#434C5E";
 const ALIVE_COLOR = "#CCCCFF";
 const ALIVE_COLOR_A = new Float32Array([0.8, 0.8, 1]);
 
-class GridShaderProgram {
-    constructor(gl, program, primitiveType, positions) {
-        this.gl = gl;
-        this.program = program;
-        this.bufferElementsPerIteration = 2;
-
-        this.positionAttributeLocation = this.gl.getAttribLocation(this.program, "a_position");
-        this.resolutionUniformLocation = this.gl.getUniformLocation(this.program, "u_resolution");
-        this.colorUniformLocation = this.gl.getUniformLocation(this.program, "u_color");
-
-        this.positionBuffer = gl.createBuffer();
-        this.primitiveType = primitiveType;
-
-        // can be dynamic.
-        this.updatePositions(positions);
-    }
-
-    setColor(color) {
-        this.gl.useProgram(this.program);
-        this.gl.uniform3fv(this.colorUniformLocation, color);
-    }
-
-    /**
-     * Call to set new positions for vertex shader data.
-     */
-    updatePositions(positions) {
-        this.positions = positions;
-        this.loadVideoDataBuffer();
-    }
-
-    run() {
-        this.setPointerReadFrom();
-        this.setReadingFashion();
-        this.draw();
-    }
-
-    draw() {
-        const offset = 0;
-        const count = this.positions.length / this.bufferElementsPerIteration;
-        this.gl.drawArrays(this.primitiveType, offset, count);
-    }
-    
-    loadVideoDataBuffer() {
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.positions, this.gl.STATIC_DRAW);
-    }
-
-    setPointerReadFrom() {
-        this.gl.useProgram(this.program);
-        this.gl.enableVertexAttribArray(this.positionAttributeLocation);
-        this.gl.uniform2f(this.resolutionUniformLocation, this.gl.canvas.width, this.gl.canvas.height);
-    }
-
-    setReadingFashion() {
-        // Tell the attribute how to get data out of positionBuffer (ARRAY_BUFFER)
-        const size = this.bufferElementsPerIteration;  // 2 components per iteration
-        const type = this.gl.FLOAT;   // the data is 32bit floats
-        const normalize = false; // don't normalize the data
-        const stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
-        const offset = 0;        // start at the beginning of the buffer
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
-        this.gl.vertexAttribPointer(
-            this.positionAttributeLocation, size, type, normalize, stride, offset,
-        );
-    }
-}
-
-function createShader(gl, type, source) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-    if (success) {
-        return shader;
-    }
-    console.log(gl.getShaderInfoLog(shader));
-    gl.deleteShader(shader);
-}
-
-function createProgram(gl, vertexShader, fragmentShader) {
-    const program = gl.createProgram();
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    const success = gl.getProgramParameter(program, gl.LINK_STATUS);
-    if (success) {
-        return program;
-    }
-
-    console.log(gl.getProgramInfoLog(program));
-    gl.deleteProgram(program);
-}
-
 const norm = (x) => {
     // const val = canvas.width / 2;
     // return (x - val) / val;
     return x;
-}
-
-const computeGridPositions = (width, height) => {
-    const res = new Float32Array(4 * (width + 1) + 4 * (height + 1));
-    let counter = 0;
-
-    for (let i = 0; i <= width; i++) {
-        res[counter++] = norm(i * (CELL_SIZE + 1) + 1);
-        res[counter++] = norm(0);
-        res[counter++] = norm(i * (CELL_SIZE + 1) + 1);
-        res[counter++] = norm((CELL_SIZE + 1) * height + 1);
-    }
-    // Horizontal lines.
-    for (let j = 0; j <= height; j++) {
-        res[counter++] = norm(0);
-        res[counter++] = norm(j * (CELL_SIZE + 1) + 1);
-        res[counter++] = norm((CELL_SIZE + 1) * width + 1);
-        res[counter++] = norm(j * (CELL_SIZE + 1) + 1);
-    }
-    return res;
 }
 
 const bitIsSet = (n, arr) => {
@@ -135,150 +26,138 @@ const bitIsSet = (n, arr) => {
     return (arr[byte] & mask) === mask;
 };
 
-class App {
-    constructor(universe, gl) {
-        this.universe = universe;
-        this.universeWidth = universe.width();
-        this.universeHeight = universe.height();
+function createAndSetupTexture(gl) {
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Set up texture so we can render any size image and so we are
+    // working with pixels.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    return texture;
+}
+
+class KernelSet {
+    constructor(gl, kernelLocation, kernelWeightLocation) {
         this.gl = gl;
+        this.kernelLocation = kernelLocation;
+        this.kernelWeightLocation = kernelWeightLocation;
+        this.kernels = {
+            normal: [
+                0, 0, 0,
+                0, 1, 0,
+                0, 0, 0
+            ],
+            gaussianBlur: [
+                0.045, 0.122, 0.045,
+                0.122, 0.332, 0.122,
+                0.045, 0.122, 0.045
+            ],
+            unsharpen: [
+                -1, -1, -1,
+                -1,  9, -1,
+                -1, -1, -1
+            ],
+            emboss: [
+                -2, -1,  0,
+                -1,  1,  1,
+                0,  1,  2
+            ]
+        };
     }
 
-    getIndex(row, column){
-        return row * this.universeWidth + column;
+    get(name) {
+        return this.kernels[name];
     }
 
-    drawCells(cellVertexData, singleCellShaderProgram) {
-        const cellsPtr = this.universe.cells();
-        const cells = new Uint8Array(memory.buffer, cellsPtr, this.universeWidth * this.universeHeight / 8);
-        let count = 0;
+    names() {
+        return Object.keys(this.kernels);
+    }
 
-        for (let row = 0; row < this.universeHeight; row++) {
-            for (let col = 0; col < this.universeWidth; col++) {
-                const idx = this.getIndex(row, col);
-                if (!bitIsSet(idx, cells)) {
-                    continue;
-                }
-                const startx = col * (CELL_SIZE + 1) + 1;
-                const starty = row * (CELL_SIZE + 1) + 1;
-                // left top triangle
-                cellVertexData[count++] = startx;
-                cellVertexData[count++] = starty;
-
-                cellVertexData[count++] = startx + CELL_SIZE;
-                cellVertexData[count++] = starty;
-
-                cellVertexData[count++] = startx;
-                cellVertexData[count++] = starty + CELL_SIZE;
-
-                // left botton triangle
-                cellVertexData[count++] = startx;
-                cellVertexData[count++] = starty + CELL_SIZE;
-
-                cellVertexData[count++] = startx + CELL_SIZE;
-                cellVertexData[count++] = starty;
-
-                cellVertexData[count++] = startx + CELL_SIZE;
-                cellVertexData[count++] = starty + CELL_SIZE;
-            }
-        }
-        singleCellShaderProgram.setColor(ALIVE_COLOR_A);
-        singleCellShaderProgram.updatePositions(cellVertexData.slice(0, count));
-        singleCellShaderProgram.run();
-        return;
-
-        // This is updated!
-
-        for (let row = 0; row < height; row++) {
-            for (let col = 0; col < width; col++) {
-                const idx = getIndex(row, col);
-
-                // This is updated!
-                if (!bitIsSet(idx, cells)) {
-                    continue;
-                }
-                //    ? ALIVE_COLOR
-                //    : DEAD_COLOR;
-
-                this.gl.fillRect(
-                    col * (CELL_SIZE + 1) + 1,
-                    row * (CELL_SIZE + 1) + 1,
-                    CELL_SIZE,
-                    CELL_SIZE
-                );
-            }
-        }
-
-        this.gl.fillStyle = DEAD_COLOR;
-        for (let row = 0; row < height; row++) {
-            for (let col = 0; col < width; col++) {
-                const idx = getIndex(row, col);
-
-                // This is updated!
-                if (bitIsSet(idx, cells)) {
-                    continue;
-                }
-                //    ? ALIVE_COLOR
-                //    : DEAD_COLOR;
-
-                this.gl.fillRect(
-                    col * (CELL_SIZE + 1) + 1,
-                    row * (CELL_SIZE + 1) + 1,
-                    CELL_SIZE,
-                    CELL_SIZE
-                );
-            }
-        }
-
-        this.gl.stroke();
+    draw(name) {
+        // set the kernel
+        this.gl.uniform1fv(this.kernelLocation, this.get(name));
+        this.gl.uniform1f(this.kernelWeightLocation, computeKernelWeight(this.get(name)));
+        // Draw the rectangle.
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     }
 }
 
-class FPS{
-    constructor() {
-        this.fps = document.getElementById("fps");
-        this.frames = [];
-        this.lastFrameTimeStamp = performance.now();
+class Attachment {
+    constructor(gl, image) {
+        this.gl = gl;
+        this.texture = createAndSetupTexture(gl);
+        // make the texture the same size as the image
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, image.width, image.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+        // Create a framebuffer
+        this.framebuffer = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+
+        // Attach a texture to it.
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.texture, 0);
     }
 
-    render() {
-        // Convert the delta time since the last frame render into a measure
-        // of frames per second.
-        const now = performance.now();
-        const delta = now - this.lastFrameTimeStamp;
-        this.lastFrameTimeStamp = now;
-        const fps = 1 / delta * 1000;
-
-        // Save only the latest 100 timings.
-        this.frames.push(fps);
-        if (this.frames.length > 100) {
-            this.frames.shift();
-        }
-
-        // Find the max, min, and mean of our 100 latest timings.
-        let min = Infinity;
-        let max = -Infinity;
-        let sum = 0;
-        for (let i = 0; i < this.frames.length; i++) {
-            sum += this.frames[i];
-            min = Math.min(this.frames[i], min);
-            max = Math.max(this.frames[i], max);
-        }
-        let mean = sum / this.frames.length;
-
-        // Render the statistics.
-        this.fps.textContent = `
-Frames per Second:
-latest = ${Math.round(fps)}
-avg of last 100 = ${Math.round(mean)}
-min of last 100 = ${Math.round(min)}
-max of last 100 = ${Math.round(max)}
-        `.trim();
+    setFramebuffer(resolutionLocation, width, height) {
+        setFramebuffer(this.gl, this.framebuffer, resolutionLocation, width, height);
     }
-};
+}
+
+class ErrorDeco {
+    constructor(gl) {
+        this.gl = gl;
+    }
+
+    string(e) {
+        switch (e) {
+            case this.gl.NO_ERROR:
+                return "NO_ERROR";
+            case this.gl.INVALID_ENUM:
+                return "INVALID_ENUM";
+            case this.gl.INVALID_VALUE:
+                return "INVALID_VALUE";
+            case this.gl.INVALID_OPERATION:
+                return "INVALID_OPERATION";
+            case this.gl.INVALID_FRAMEBUFFER_OPERATION:
+                return "INVALID_FRAMEBUFFER_OPERATION";
+            case this.gl.OUT_OF_MEMORY:
+                return "OUT_OF_MEMORY";
+            case this.gl.CONTEXT_LOST_WEBGL:
+                return "CONTEXT_LOST_WEBGL";
+            default:
+                return "UNEXPECTED ERROR";
+        }
+    }
+
+    print(e) {
+        console.log(this.string(e))
+    }
+}
+
+function computeKernelWeight(kernel) {
+    const weight = kernel.reduce((a, b) => a + b);
+    return weight <= 0 ? 1 : weight;
+}
+
+function setFramebuffer(gl, fbo, resolutionLocation, width, height) {
+    // make this the framebuffer we are rendering to.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+
+    // Tell the shader the resolution of the framebuffer.
+    // gl.uniform2f(resolutionLocation, width, height);
+
+    // Tell webgl the viewport setting needed for framebuffer.
+    // gl.viewport(0, 0, width, height);
+}
 
 function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
-    const squareHeight = 300.0;
-    const squareWidth = 760.0;
+    // const squareHeight = 300.0;
+    // const squareWidth = 760.0;
+    const squareHeight = gl.canvas.height;
+    const squareWidth = gl.canvas.width;
     const cellPositions = new Float32Array([
         0.0, 0.0,
         0.0, squareHeight,
@@ -302,31 +181,100 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         gl.enableVertexAttribArray(a_position_loc);
         gl.vertexAttribPointer(a_position_loc, 2, gl.FLOAT, false, 0, 0);
 
+        // a_texCoord
+        const texcoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            0.0,  0.0,
+            0.0,  1.0,
+            1.0,  0.0,
+
+            1.0,  0.0,
+            0.0,  1.0,
+            1.0,  1.0,
+        ]), gl.STATIC_DRAW);
+
+        const texcoordLocation = gl.getAttribLocation(program, "a_texCoord");
+        gl.enableVertexAttribArray(texcoordLocation);
+        gl.vertexAttribPointer(texcoordLocation, 2, gl.FLOAT, false, 0, 0);
+
         // vertex shader set u_resolution
-        const u_resolution_loc = gl.getUniformLocation(program, "u_resolution");
-        gl.uniform2fv(u_resolution_loc, [gl.canvas.width, gl.canvas.height]);
+        const u_resolutionLoc = gl.getUniformLocation(program, "u_resolution");
+        gl.uniform2fv(u_resolutionLoc, [gl.canvas.width, gl.canvas.height]);
 
-        // fragment shader set u_color
-        const u_color_loc = gl.getUniformLocation(program, "u_color");
-        gl.uniform3fv(u_color_loc, [.5, .0, .5]);
+        const u_textureResolutionLoc = gl.getUniformLocation(program, "u_textureResolution");
+        gl.uniform2fv(u_textureResolutionLoc, [battlecruiserImage.width, battlecruiserImage.height]);
 
-        const texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
+        const u_textureSizeLoc = gl.getUniformLocation(program, "u_textureSize");
+        gl.uniform2fv(u_textureSizeLoc, [battlecruiserImage.width, battlecruiserImage.height]);
 
-        // Set the parameters so we can render any size image.
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        const u_kernelWeightLoc = gl.getUniformLocation(program, "u_kernelWeight");
 
-        // Upload the image into the texture.
+        // // fragment shader set u_color
+        // const u_color_loc = gl.getUniformLocation(program, "u_color");
+        // gl.uniform3fv(u_color_loc, [.5, .0, .5]);
+        const originalTexture = createAndSetupTexture(gl);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, battlecruiserImage);
 
+        // framebuffer experiments
+        const attachments = [
+            new Attachment(gl, battlecruiserImage),
+            new Attachment(gl, battlecruiserImage),
+        ];
+
+        const kernelLoc = gl.getUniformLocation(program, "u_kernel[0]");
+        const kernelSet = new KernelSet(gl, kernelLoc, u_kernelWeightLoc);
+        const glErrorDeco = new ErrorDeco(gl);
+
+        const flipLoc = gl.getUniformLocation(program, "u_flip");
+        gl.uniform1f(flipLoc, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-        // const animationId = requestAnimationFrame(() => {
-        // });
-        console.log(4);
+        const draw = flags => {
+            gl.bindTexture(gl.TEXTURE_2D, originalTexture);
+
+            const drawFrameBuffers = () => {
+                const names = kernelSet.names();
+                let count = 0;
+                for (let i = 0; i < names.length; ++i) {
+                    if ((flags & (1 << i)) == 0) {
+                        continue;
+                    }
+
+                    const name = names[i];
+                    const att = attachments[count % 2];
+                    att.setFramebuffer(u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
+                    console.log(`is fbo ready`,
+                        gl.checkFramebufferStatus(gl.FRAMEBUFFER) == gl.FRAMEBUFFER_COMPLETE);
+                    kernelSet.draw(name);
+                    gl.bindTexture(gl.TEXTURE_2D, att.texture);
+                    // gl.bindTexture(gl.TEXTURE_2D, textures[count % 2]);
+                    glErrorDeco.print(gl.getError());
+                    ++count;
+                }
+            }
+            drawFrameBuffers();
+
+            setFramebuffer(gl, null, u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
+            kernelSet.draw('normal');
+            console.log('flags', flags.toString(2));
+        }
+        // gl.clear(gl.COLOR_BUFFER_BIT);
+        // gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        draw(0b0000);
+        const delayDraw = (x) => {
+            draw(x);
+            return new Promise((resolve, reject) => setTimeout(resolve, 2000));
+        }
+
+        new Promise((resolve, reject) => setTimeout(() => resolve(), 2000))
+            .then(() => delayDraw(0b0011))
+            .then(() => delayDraw(0b0111))
+            .then(() => delayDraw(0b1111))
+            .then(() => delayDraw(0b1001))
+            .then(() => delayDraw(0b0111))
+            .then(() => delayDraw(0b0011))
+        ;
     }
 }
 
@@ -338,8 +286,8 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
     const canvas = document.getElementById("game-of-life-canvas");
     // canvas.height = (CELL_SIZE + 1) * universeHeight + 1;
     // canvas.width = (CELL_SIZE + 1) * universeWidth + 1;
-    canvas.height = 600;
-    canvas.width = 800;
+    canvas.height = 676;
+    canvas.width = 1200;
     const gl = canvas.getContext('webgl', {
         antialias: true,
     });
@@ -359,11 +307,6 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
     const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
     const simplePointProgram = createProgram(gl, vertexShader, fragmentShader);
-
-    const gridPositions = computeGridPositions(universeWidth, universeHeight);
-    const fieldGridShaderProgram = new GridShaderProgram(
-        gl, simplePointProgram, gl.LINES, gridPositions, 
-    );
 
     loadBufferLearn(gl, vertexShader, fragmentShader, simplePointProgram)
     return;
@@ -413,7 +356,12 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         }
     });
 
-    const app = new App(universe, gl);
+    // const app = new App(universe, gl, CELL_SIZE, DEAD_COLOR, ALIVE_COLOR_A);
+    // const gridPositions = app.computeGridPositions();
+    // const fieldGridShaderProgram = new GridShaderProgram(
+    //     gl, simplePointProgram, gl.LINES, gridPositions, 
+    // );
+
 
     // This function is the same as before, except the
     // result of `requestAnimationFrame` is assigned to

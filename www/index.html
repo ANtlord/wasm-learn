@@ -5,22 +5,24 @@
         <title>Hello wasm-pack!</title>
         <style>
 body {
-    background: #2e3440;
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+	background: #2e3440;
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	color: white;
+	font-family: Sans;
 }
 
 #fps {
-    color: white;
-    white-space: pre;
-    font-family: monospace;
+	color: white;
+	white-space: pre;
+	font-family: monospace;
 }
         </style>
     </head>
@@ -28,6 +30,9 @@ body {
         // an attribute will receive data from a buffer
         attribute vec2 a_position;
         uniform vec2 u_resolution;
+        uniform float u_flip;
+        uniform vec2 u_textureResolution;
+		attribute vec2 a_texCoord;
 		varying vec2 v_texCoord;
 		// varying vec3 v_color;
 
@@ -43,34 +48,48 @@ body {
             vec2 clipSpace = zeroToTwo - 1.0;
 
 		 	float val = pixelsToLocalCoordinates.x * abs(pixelsToLocalCoordinates.y - 1.);
-		 	v_texCoord = pixelsToLocalCoordinates;
+		 	// v_texCoord = (pixelsToLocalCoordinates) /  (u_textureResolution / u_resolution);
+		 	v_texCoord = a_texCoord;
 		 	// v_color = vec3(val, val, val);
-            gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);;
+            gl_Position = vec4(clipSpace * vec2(1, u_flip), 0, 1);;
         }
     </script>
 
     <script id="2d-fragment-shader" type="notjs">
+		precision mediump float;
 
-        // fragment shaders don't have a default precision so we need
-        // to pick one. mediump is a good default
-        precision mediump float;
-        uniform vec3 u_color;
+		// our texture
 		uniform sampler2D u_image;
-		varying vec2 v_texCoord;
-		// varying vec3 v_color;
+		uniform vec2 u_textureSize;
+		uniform float u_kernel[9];
+		uniform float u_kernelWeight;
 
-        void main() {
-            // gl_FragColor is a special variable a fragment shader
-            // is responsible for setting
-		    gl_FragColor = texture2D(u_image, v_texCoord) + texture2D(u_image, v_texCoord);
-            //gl_FragColor = vec4(u_color, 1);
-            //gl_FragColor = vec4(v_color, 1);
-        }
+		// the texCoords passed in from the vertex shader.
+		varying vec2 v_texCoord;
+
+		void main() {
+			vec2 onePixel = vec2(1.0, 1.0) / u_textureSize;
+			vec4 colorSum =
+			   texture2D(u_image, v_texCoord + onePixel * vec2(-1, -1)) * u_kernel[0] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2( 0, -1)) * u_kernel[1] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2( 1, -1)) * u_kernel[2] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2(-1,  0)) * u_kernel[3] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2( 0,  0)) * u_kernel[4] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2( 1,  0)) * u_kernel[5] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2(-1,  1)) * u_kernel[6] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2( 0,  1)) * u_kernel[7] +
+			   texture2D(u_image, v_texCoord + onePixel * vec2( 1,  1)) * u_kernel[8] ;
+			gl_FragColor = vec4((colorSum / u_kernelWeight).rgb, 1);
+		}
     </script>
 
     <body>
         <button id="play-pause"></button>
-        <div id="fps"></div>
+		<div><input type="checkbox" class="kernel" data-value="normal"/><span>normal</span></div>
+		<div><input type="checkbox" class="kernel" data-value="gaussianBlur"/><span>gaussianBlur</span></div>
+		<div><input type="checkbox" class="kernel" data-value="unsharpen"/><span>unsharpen</span></div>
+		<div><input type="checkbox" class="kernel" data-value="emboss"/><span>emboss</span></div>
+		<div id="fps"></div>
         <canvas id="game-of-life-canvas"></canvas>
         <script src="./bootstrap.js"></script>
     </body>
