@@ -158,10 +158,10 @@ function setFramebuffer(gl, fbo, resolutionLocation, width, height) {
 }
 
 function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
-    // const squareHeight = 300.0;
-    // const squareWidth = 760.0;
-    const squareHeight = gl.canvas.height;
-    const squareWidth = gl.canvas.width;
+    const squareHeight = 300.0;
+    const squareWidth = 760.0;
+    // const squareHeight = gl.canvas.height;
+    // const squareWidth = gl.canvas.width;
     const cellPositions = new Float32Array([
         0.0, 0.0,
         0.0, squareHeight,
