@@ -79,7 +79,11 @@ class KernelSet {
 
     draw(name) {
         // set the kernel
-        this.gl.uniform1fv(this.kernelLocation, this.get(name));
+        const val = this.get(name);
+        if (val === undefined) {
+            console.log(`unable to get kernel`, {name: name, val: val});
+        }
+        this.gl.uniform1fv(this.kernelLocation, val);
         this.gl.uniform1f(this.kernelWeightLocation, computeKernelWeight(this.get(name)));
         // Draw the rectangle.
         this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
@@ -227,12 +231,12 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         const glErrorDeco = new ErrorDeco(gl);
 
         const flipLoc = gl.getUniformLocation(program, "u_flip");
-        gl.uniform1f(flipLoc, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
         const draw = flags => {
             gl.bindTexture(gl.TEXTURE_2D, originalTexture);
 
             const drawFrameBuffers = () => {
+                gl.uniform1f(flipLoc, 1);
                 const names = kernelSet.names();
                 let count = 0;
                 for (let i = 0; i < names.length; ++i) {
@@ -240,12 +244,12 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
                         continue;
                     }
 
-                    const name = names[i];
+                    const kernelName = names[i];
                     const att = attachments[count % 2];
                     att.setFramebuffer(u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
                     console.log(`is fbo ready`,
                         gl.checkFramebufferStatus(gl.FRAMEBUFFER) == gl.FRAMEBUFFER_COMPLETE);
-                    kernelSet.draw(name);
+                    kernelSet.draw(kernelName);
                     gl.bindTexture(gl.TEXTURE_2D, att.texture);
                     // gl.bindTexture(gl.TEXTURE_2D, textures[count % 2]);
                     glErrorDeco.print(gl.getError());
@@ -254,6 +258,7 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
             }
             drawFrameBuffers();
 
+            gl.uniform1f(flipLoc, -1);
             setFramebuffer(gl, null, u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
             kernelSet.draw('normal');
             console.log('flags', flags.toString(2));
@@ -261,20 +266,20 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         // gl.clear(gl.COLOR_BUFFER_BIT);
         // gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-        draw(0b0000);
+        draw(0b1100);
         const delayDraw = (x) => {
             draw(x);
             return new Promise((resolve, reject) => setTimeout(resolve, 2000));
         }
 
-        new Promise((resolve, reject) => setTimeout(() => resolve(), 2000))
-            .then(() => delayDraw(0b0011))
-            .then(() => delayDraw(0b0111))
-            .then(() => delayDraw(0b1111))
-            .then(() => delayDraw(0b1001))
-            .then(() => delayDraw(0b0111))
-            .then(() => delayDraw(0b0011))
-        ;
+        // new Promise((resolve, reject) => setTimeout(() => resolve(), 2000))
+        //     .then(() => delayDraw(0b1111))
+        //     .then(() => delayDraw(0b0011))
+        //     .then(() => delayDraw(0b1111))
+        //     .then(() => delayDraw(0b1001))
+        //     .then(() => delayDraw(0b0111))
+        //     .then(() => delayDraw(0b0011))
+        // ;
     }
 }
 
