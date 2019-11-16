@@ -117,4 +117,86 @@ export class App {
         }
         return res;
     }
+
+    getUniverse() {
+        return this.universe;
+    }
+}
+
+export class ClickListener {
+    constructor(canvas, cellSize, universe, app, singleCellShaderProgram, cellVertexData, gridDrawer) {
+        this.canvas = canvas;
+        this.cellSize = cellSize;
+        this.singleCellShaderProgram = singleCellShaderProgram;
+        this.app = app;
+        this.cellVertexData = cellVertexData;
+        this.gridDrawer = gridDrawer;
+    }
+
+    handle(ev) {
+        const universe = this.app.getUniverse();
+        const boundingRect = this.canvas.getBoundingClientRect();
+
+        const scaleX = this.canvas.width / boundingRect.width;
+        const scaleY = this.canvas.height / boundingRect.height;
+
+        const canvasLeft = (ev.clientX - boundingRect.left) * scaleX;
+        const canvasTop = (ev.clientY - boundingRect.top) * scaleY;
+
+        const row = Math.min(Math.floor(canvasTop / (this.cellSize + 1)), universe.height() - 1);
+        const col = Math.min(Math.floor(canvasLeft / (this.cellSize + 1)), universe.width() - 1);
+
+        if (ev.ctrlKey) {
+            universe.spawn_glider(row, col);
+        } else {
+            universe.toggle_cell(row, col);
+        }
+
+        this.gridDrawer.draw();
+        // this.app.drawCells(this.cellVertexData, this.singleCellShaderProgram);
+    }
+}
+
+export class GridDrawer {
+    constructor(fieldGridShaderProgram, gridColor, cellVertexData, singleCellShaderProgram, app) {
+        this.fieldGridShaderProgram = fieldGridShaderProgram;
+        this.gridColor = gridColor;
+        this.cellVertexData = cellVertexData
+        this.singleCellShaderProgram = singleCellShaderProgram;
+        this.app = app;
+    }
+
+    draw() {
+        this.fieldGridShaderProgram.setColor(this.gridColor);
+        this.fieldGridShaderProgram.run();
+        this.app.drawCells(this.cellVertexData, this.singleCellShaderProgram);
+    }
+}
+
+export class RenderLoop {
+    constructor(app, gridDrawer, fps) {
+        this.app = app;
+        this.gridDrawer = gridDrawer;
+        this.fps = fps;
+        this.animationId = null;
+        this.speed = 1;
+    }
+
+    // This function is the same as before, except the
+    // result of `requestAnimationFrame` is assigned to
+    // `animationId`.
+    tick() {
+        const universe = this.app.getUniverse()
+        this.fps.render();
+        for (let i = 0; i < this.speed; i++) {
+            universe.tick();
+        }
+        this.gridDrawer.draw();
+        this.animationId = requestAnimationFrame(this.tick);
+    }
+
+    pause() {
+        cancelAnimationFrame(this.animationId);
+        this.animationId = null;
+    }
 }

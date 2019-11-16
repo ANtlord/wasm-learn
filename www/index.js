@@ -4,8 +4,9 @@ import { Universe, Cell } from "wasm-game-of-life";
 import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
 import { GridShaderProgram } from "./grid.js";
 import { createShader, createProgram } from "./shader.js";
-import { App } from "./gameApp.js";
+import { App, ClickListener, GridDrawer, RenderLoop } from "./gameApp.js";
 import { FPS } from "./fps.js";
+import { createAndSetupTexture, ErrorDeco } from "./helpers.js";
 
 const CELL_SIZE = 5; // px
 const GRID_COLOR = "#434C5E";
@@ -25,20 +26,6 @@ const bitIsSet = (n, arr) => {
     const mask = 1 << (n % 8);
     return (arr[byte] & mask) === mask;
 };
-
-function createAndSetupTexture(gl) {
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    // Set up texture so we can render any size image and so we are
-    // working with pixels.
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-
-    return texture;
-}
 
 class KernelSet {
     constructor(gl, kernelLocation, kernelWeightLocation) {
@@ -110,37 +97,6 @@ class Attachment {
     }
 }
 
-class ErrorDeco {
-    constructor(gl) {
-        this.gl = gl;
-    }
-
-    string(e) {
-        switch (e) {
-            case this.gl.NO_ERROR:
-                return "NO_ERROR";
-            case this.gl.INVALID_ENUM:
-                return "INVALID_ENUM";
-            case this.gl.INVALID_VALUE:
-                return "INVALID_VALUE";
-            case this.gl.INVALID_OPERATION:
-                return "INVALID_OPERATION";
-            case this.gl.INVALID_FRAMEBUFFER_OPERATION:
-                return "INVALID_FRAMEBUFFER_OPERATION";
-            case this.gl.OUT_OF_MEMORY:
-                return "OUT_OF_MEMORY";
-            case this.gl.CONTEXT_LOST_WEBGL:
-                return "CONTEXT_LOST_WEBGL";
-            default:
-                return "UNEXPECTED ERROR";
-        }
-    }
-
-    print(e) {
-        console.log(this.string(e))
-    }
-}
-
 function computeKernelWeight(kernel) {
     const weight = kernel.reduce((a, b) => a + b);
     return weight <= 0 ? 1 : weight;
@@ -158,10 +114,12 @@ function setFramebuffer(gl, fbo, resolutionLocation, width, height) {
 }
 
 function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
-    const squareHeight = 300.0;
-    const squareWidth = 760.0;
+    // const squareHeight = 300.0;
+    // const squareWidth = 760.0;
     // const squareHeight = gl.canvas.height;
     // const squareWidth = gl.canvas.width;
+    const squareHeight = .5;
+    const squareWidth = .5;
     const cellPositions = new Float32Array([
         0.0, 0.0,
         0.0, squareHeight,
@@ -188,14 +146,15 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         // a_texCoord
         const texcoordBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+        const texWidth = 1, texHeight = 1;
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
             0.0,  0.0,
-            0.0,  1.0,
-            1.0,  0.0,
+            0.0,  texWidth,
+            texHeight,  0.0,
 
-            1.0,  0.0,
-            0.0,  1.0,
-            1.0,  1.0,
+            texHeight,  0.0,
+            0.0,  texWidth,
+            texHeight,  texWidth,
         ]), gl.STATIC_DRAW);
 
         const texcoordLocation = gl.getAttribLocation(program, "a_texCoord");
@@ -266,11 +225,11 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         // gl.clear(gl.COLOR_BUFFER_BIT);
         // gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-        draw(0b1100);
-        const delayDraw = (x) => {
-            draw(x);
-            return new Promise((resolve, reject) => setTimeout(resolve, 2000));
-        }
+        draw(0b0000);
+        // const delayDraw = (x) => {
+        //     draw(x);
+        //     return new Promise((resolve, reject) => setTimeout(resolve, 2000));
+        // }
 
         // new Promise((resolve, reject) => setTimeout(() => resolve(), 2000))
         //     .then(() => delayDraw(0b1111))
@@ -283,16 +242,18 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
     }
 }
 
-(function(){
-    const universe = Universe.new();
-    const universeWidth = universe.width();
-    const universeHeight = universe.height();
-
+function newCanvas(selector, w, h) {
     const canvas = document.getElementById("game-of-life-canvas");
-    // canvas.height = (CELL_SIZE + 1) * universeHeight + 1;
-    // canvas.width = (CELL_SIZE + 1) * universeWidth + 1;
-    canvas.height = 676;
-    canvas.width = 1200;
+    if (!canvas) {
+        return;
+    }
+    canvas.height = h;
+    canvas.width = w;
+    return canvas;
+}
+
+(function(){
+    const canvas = newCanvas("game-of-life-canvas", 1200, 676);
     const gl = canvas.getContext('webgl', {
         antialias: true,
     });
@@ -314,7 +275,36 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
     const simplePointProgram = createProgram(gl, vertexShader, fragmentShader);
 
     loadBufferLearn(gl, vertexShader, fragmentShader, simplePointProgram)
-    return;
+})();
+
+// main function of game application.
+function gameMain(){
+    const universe = Universe.new();
+    const universeWidth = universe.width();
+    const universeHeight = universe.height();
+    const canvas = newCanvas(
+        "game-of-life-canvas",
+        (CELL_SIZE + 1) * universeWidth + 1,
+        (CELL_SIZE + 1) * universeWidth + 1,
+    );
+    if (!canvas) {
+        console.log('fail init canvas');
+        return;
+    }
+
+    const gl = canvas.getContext('webgl', {
+        antialias: true,
+    });
+    if (!gl) {
+        alert('WebGL not working');
+        return;
+    }
+    gl.lineWidth(1);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.clearColor(0,0,0,1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+
     const cellPositions = new Float32Array([
         0.0, 0.0,
         0.0, 100.0,
@@ -327,80 +317,37 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
     const singleCellShaderProgram = new GridShaderProgram(gl, simplePointProgram, gl.TRIANGLES, cellPositions);
     const cellVertexData = new Float32Array(12 * universeWidth * universeHeight);
-
     const fps = new FPS();
-
     let animationId = null;
     const isPaused = () => {
         return animationId === null;
     };
 
-    const drawGrid = () => {
-        fieldGridShaderProgram.setColor(GRID_COLOR_A);
-        fieldGridShaderProgram.run();
-    };
+    const gridDrawer = new GridDrawer(fieldGridShaderProgram, GRID_COLOR_A);
+
+    const app = new App(universe, gl, CELL_SIZE, DEAD_COLOR, ALIVE_COLOR_A);
+    const gridPositions = app.computeGridPositions();
+    const fieldGridShaderProgram = new GridShaderProgram(
+        gl, simplePointProgram, gl.LINES, gridPositions, 
+    );
+    const gameRenderLoop = new RenderLoop(app, gridDrawer, fps);
 
     const playPauseButton = document.getElementById("play-pause");
-
     const play = () => {
         playPauseButton.textContent = "⏸";
-        renderLoop();
-    };
-
-    const pause = () => {
-        playPauseButton.textContent = "▶";
-        cancelAnimationFrame(animationId);
-        animationId = null;
-    };
-
-    playPauseButton.addEventListener("click", event => {
-        if (isPaused()) {
-            play();
-        } else {
-            pause();
-        }
-    });
-
-    // const app = new App(universe, gl, CELL_SIZE, DEAD_COLOR, ALIVE_COLOR_A);
-    // const gridPositions = app.computeGridPositions();
-    // const fieldGridShaderProgram = new GridShaderProgram(
-    //     gl, simplePointProgram, gl.LINES, gridPositions, 
-    // );
-
-
-    // This function is the same as before, except the
-    // result of `requestAnimationFrame` is assigned to
-    // `animationId`.
-    const renderLoop = () => {
-        fps.render();
-        // for (let i = 0; i < 9; i++) {
-        universe.tick();
-        // }
-        drawGrid();
-        app.drawCells(cellVertexData, singleCellShaderProgram);
-        animationId = requestAnimationFrame(renderLoop);
+        gameRenderLoop.tick();
     };
     play();
+    const pause = () => {
+        playPauseButton.textContent = "▶";
+        gameRenderLoop.pause();
+    };
 
-    canvas.addEventListener("click", ev => {
-        const boundingRect = canvas.getBoundingClientRect();
+    playPauseButton.addEventListener("click", ev => (isPaused()) ? play() : pause());
 
-        const scaleX = canvas.width / boundingRect.width;
-        const scaleY = canvas.height / boundingRect.height;
 
-        const canvasLeft = (ev.clientX - boundingRect.left) * scaleX;
-        const canvasTop = (ev.clientY - boundingRect.top) * scaleY;
-
-        const row = Math.min(Math.floor(canvasTop / (CELL_SIZE + 1)), universeHeight - 1);
-        const col = Math.min(Math.floor(canvasLeft / (CELL_SIZE + 1)), universeWidth - 1);
-
-        if (ev.ctrlKey) {
-            universe.spawn_glider(row, col);
-        } else {
-            universe.toggle_cell(row, col);
-        }
-
-        drawGrid();
-        app.drawCells(cellVertexData, singleCellShaderProgram);
-    });
-})();
+    const canvasClickEventListener = new ClickEventListener(
+        canvas, CELL_SIZE, universe, app, singleCellShaderProgram, cellVertexData, gridDrawer,
+    );
+    canvas.addEventListener("click", canvasClickEventListener.handle);
+}
