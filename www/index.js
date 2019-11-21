@@ -64,7 +64,7 @@ class KernelSet {
         return Object.keys(this.kernels);
     }
 
-    draw(name) {
+    draw(name, count) {
         // set the kernel
         const val = this.get(name);
         if (val === undefined) {
@@ -73,7 +73,7 @@ class KernelSet {
         this.gl.uniform1fv(this.kernelLocation, val);
         this.gl.uniform1f(this.kernelWeightLocation, computeKernelWeight(this.get(name)));
         // Draw the rectangle.
-        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, count);
     }
 }
 
@@ -113,53 +113,78 @@ function setFramebuffer(gl, fbo, resolutionLocation, width, height) {
     // gl.viewport(0, 0, width, height);
 }
 
-function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
-    // const squareHeight = 300.0;
-    // const squareWidth = 760.0;
-    // const squareHeight = gl.canvas.height;
-    // const squareWidth = gl.canvas.width;
-    const squareHeight = .5;
-    const squareWidth = .5;
-    const cellPositions = new Float32Array([
-        0.0, 0.0,
-        0.0, squareHeight,
-        squareWidth, 0.0,
+function newRectangle(x, y, w, h) {
+    return new Float32Array([
+        x, y,
+        x, y + h,
+        x + w, y,
 
-        squareWidth, 0.0,
-        0.0, squareHeight,
-        squareWidth, squareHeight,
+        x + w, y,
+        x, y + h,
+        x + w, y + h,
     ]);
+}
 
+class BasicMesh {
+    constructor(gl, attribLocation) {
+        this.gBuf = gl.createBuffer();
+        this.gl = gl;
+        this.attribLocation = attribLocation;
+    }
+
+    bind(data) {
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.gBuf);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.STATIC_DRAW);
+        // enable vertex for drawing
+        this.gl.enableVertexAttribArray(this.attribLocation);
+        const
+            index = this.attribLocation,
+            size = 2,
+            type = this.gl.FLOAT,
+            normalized = false,
+            stride = 0,
+            offset = 0;
+        this.gl.vertexAttribPointer(index, size, type, normalized, stride, offset);
+        return this;
+    }
+}
+
+function fLetterPositions(letterLineWidth, letterHeight) {
+    const topPlane = newRectangle(letterLineWidth, 0., 200, letterLineWidth);
+    const middlePlane = newRectangle(letterLineWidth, letterHeight / 2, 150, letterLineWidth);
+    const verticalPlane = newRectangle(0., 0., letterLineWidth, letterHeight);
+
+    const cellPositions = new Float32Array(topPlane.length + middlePlane.length + verticalPlane.length);
+    cellPositions.set(topPlane);
+    cellPositions.set(middlePlane, topPlane.length);
+    cellPositions.set(verticalPlane, topPlane.length + middlePlane.length);
+    return cellPositions;
+}
+
+function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
+    const squareHeight = .1;
+    const squareWidth = .5;
+    const letterLineWidth = 50.;
+    const letterHeight = 300;
+    const texWidth = 1.;
+    const texHeight = 1.;
     const battlecruiserImage = new Image();
+
+    gl.useProgram(program);
     battlecruiserImage.src = 'http://localhost:8080/image.png';
     battlecruiserImage.onload = () => {
+        const glErrorDeco = new ErrorDeco(gl);
         // vertex shader set a_position
-        gl.useProgram(program);
-        const gBuf = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, gBuf);
-        gl.bufferData(gl.ARRAY_BUFFER, cellPositions, gl.STATIC_DRAW);
+        
+        const cellPositions = fLetterPositions(letterLineWidth, letterHeight);
+        new BasicMesh(gl, gl.getAttribLocation(program, "a_position")).bind(cellPositions);
 
-        const a_position_loc = gl.getAttribLocation(program, "a_position");
-        gl.enableVertexAttribArray(a_position_loc);
-        gl.vertexAttribPointer(a_position_loc, 2, gl.FLOAT, false, 0, 0);
+        new BasicMesh(gl, gl.getAttribLocation(program, "a_texCoord"))
+            .bind(newRectangle(0., 0., texWidth, texHeight));
 
-        // a_texCoord
-        const texcoordBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
-        const texWidth = 1, texHeight = 1;
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-            0.0,  0.0,
-            0.0,  texWidth,
-            texHeight,  0.0,
-
-            texHeight,  0.0,
-            0.0,  texWidth,
-            texHeight,  texWidth,
-        ]), gl.STATIC_DRAW);
-
-        const texcoordLocation = gl.getAttribLocation(program, "a_texCoord");
-        gl.enableVertexAttribArray(texcoordLocation);
-        gl.vertexAttribPointer(texcoordLocation, 2, gl.FLOAT, false, 0, 0);
+        // vertex shader set u_translation
+        const u_translationLoc = gl.getUniformLocation(program, "u_translation");
+        gl.uniform2fv(u_translationLoc, [100, 0]);
 
         // vertex shader set u_resolution
         const u_resolutionLoc = gl.getUniformLocation(program, "u_resolution");
@@ -173,9 +198,6 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
         const u_kernelWeightLoc = gl.getUniformLocation(program, "u_kernelWeight");
 
-        // // fragment shader set u_color
-        // const u_color_loc = gl.getUniformLocation(program, "u_color");
-        // gl.uniform3fv(u_color_loc, [.5, .0, .5]);
         const originalTexture = createAndSetupTexture(gl);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, battlecruiserImage);
 
@@ -187,7 +209,6 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
         const kernelLoc = gl.getUniformLocation(program, "u_kernel[0]");
         const kernelSet = new KernelSet(gl, kernelLoc, u_kernelWeightLoc);
-        const glErrorDeco = new ErrorDeco(gl);
 
         const flipLoc = gl.getUniformLocation(program, "u_flip");
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -219,7 +240,8 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
             gl.uniform1f(flipLoc, -1);
             setFramebuffer(gl, null, u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
-            kernelSet.draw('normal');
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            kernelSet.draw('normal', cellPositions.length / 2);
             console.log('flags', flags.toString(2));
         }
         // gl.clear(gl.COLOR_BUFFER_BIT);
