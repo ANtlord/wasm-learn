@@ -65,13 +65,16 @@ class KernelSet {
     }
 
     draw(name, count) {
+        if (count === undefined) {
+            console.error(`can't draw kernelset. count is undefined`)
+        }
         // set the kernel
         const val = this.get(name);
         if (val === undefined) {
-            console.log(`unable to get kernel`, {name: name, val: val});
+            console.error(`unable to get kernel`, {name: name, val: val});
         }
         this.gl.uniform1fv(this.kernelLocation, val);
-        this.gl.uniform1f(this.kernelWeightLocation, computeKernelWeight(this.get(name)));
+        this.gl.uniform1f(this.kernelWeightLocation, computeKernelWeight(val));
         // Draw the rectangle.
         this.gl.drawArrays(this.gl.TRIANGLES, 0, count);
     }
@@ -130,6 +133,9 @@ class BasicMesh {
         this.gBuf = gl.createBuffer();
         this.gl = gl;
         this.attribLocation = attribLocation;
+        if (attribLocation == -1) {
+            console.log(`invalid value of attrib location`)
+        }
     }
 
     bind(data) {
@@ -161,6 +167,54 @@ function fLetterPositions(letterLineWidth, letterHeight) {
     return cellPositions;
 }
 
+class EffectFilter {
+    constructor(gl, img, kernelSet, canvasResolutionLoc) {
+        this.gl = gl;
+        this.attachments = [new Attachment(gl, img), new Attachment(gl, img)];
+        this.originalTexture = createAndSetupTexture(gl);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        this.kernelSet = kernelSet;
+        this.img = img;
+        this.canvasResolutionLoc = canvasResolutionLoc;
+        this.glErrorDeco = new ErrorDeco(gl);
+    }
+
+    draw(flags, drawCount) {
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.originalTexture);
+        let err = this.gl.getError();
+        if (err != this.gl.NO_ERROR) {
+            console.log(`bindTexture`, this.glErrorDeco.string(err));
+        }
+
+        const names = this.kernelSet.names();
+        let count = 0;
+        for (let i = 0; i < names.length; ++i) {
+            if ((flags & (1 << i)) == 0) {
+                continue;
+            }
+
+            const kernelName = names[i];
+            const att = this.attachments[count % 2];
+            att.setFramebuffer(this.canvasResolutionLoc, this.img.width, this.img.height);
+            err = this.gl.getError()
+            if (err != this.gl.NO_ERROR) {
+                console.log(`set framebuffer`, this.glErrorDeco.string(err));
+            }
+
+            console.log(`is fbo ready`,
+                this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) == this.gl.FRAMEBUFFER_COMPLETE);
+            this.kernelSet.draw(kernelName, drawCount);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, att.texture);
+            err = this.gl.getError()
+            if (err != this.gl.NO_ERROR) {
+                console.log(`bindTexture`, this.glErrorDeco.string(err));
+            }
+
+            ++count;
+        }
+    }
+}
+
 function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
     const squareHeight = .1;
     const squareWidth = .5;
@@ -179,8 +233,8 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         const cellPositions = fLetterPositions(letterLineWidth, letterHeight);
         new BasicMesh(gl, gl.getAttribLocation(program, "a_position")).bind(cellPositions);
 
-        new BasicMesh(gl, gl.getAttribLocation(program, "a_texCoord"))
-            .bind(newRectangle(0., 0., texWidth, texHeight));
+        // new BasicMesh(gl, gl.getAttribLocation(program, "a_texCoord"))
+        //     .bind(newRectangle(0., 0., texWidth, texHeight));
 
         // vertex shader set u_translation
         const u_translationLoc = gl.getUniformLocation(program, "u_translation");
@@ -196,7 +250,6 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         const u_textureSizeLoc = gl.getUniformLocation(program, "u_textureSize");
         gl.uniform2fv(u_textureSizeLoc, [battlecruiserImage.width, battlecruiserImage.height]);
 
-        const u_kernelWeightLoc = gl.getUniformLocation(program, "u_kernelWeight");
 
         const originalTexture = createAndSetupTexture(gl);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, battlecruiserImage);
@@ -208,35 +261,40 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         ];
 
         const kernelLoc = gl.getUniformLocation(program, "u_kernel[0]");
+        const u_kernelWeightLoc = gl.getUniformLocation(program, "u_kernelWeight");
         const kernelSet = new KernelSet(gl, kernelLoc, u_kernelWeightLoc);
 
         const flipLoc = gl.getUniformLocation(program, "u_flip");
         gl.clear(gl.COLOR_BUFFER_BIT);
+
+        const effectFilter = new EffectFilter(gl, battlecruiserImage, kernelSet, u_resolutionLoc);
         const draw = flags => {
             gl.bindTexture(gl.TEXTURE_2D, originalTexture);
 
-            const drawFrameBuffers = () => {
-                gl.uniform1f(flipLoc, 1);
-                const names = kernelSet.names();
-                let count = 0;
-                for (let i = 0; i < names.length; ++i) {
-                    if ((flags & (1 << i)) == 0) {
-                        continue;
-                    }
+            gl.uniform1f(flipLoc, 1);
+            // const drawFrameBuffers = () => {
+            //     const names = kernelSet.names();
+            //     let count = 0;
+            //     for (let i = 0; i < names.length; ++i) {
+            //         if ((flags & (1 << i)) == 0) {
+            //             continue;
+            //         }
 
-                    const kernelName = names[i];
-                    const att = attachments[count % 2];
-                    att.setFramebuffer(u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
-                    console.log(`is fbo ready`,
-                        gl.checkFramebufferStatus(gl.FRAMEBUFFER) == gl.FRAMEBUFFER_COMPLETE);
-                    kernelSet.draw(kernelName);
-                    gl.bindTexture(gl.TEXTURE_2D, att.texture);
-                    // gl.bindTexture(gl.TEXTURE_2D, textures[count % 2]);
-                    glErrorDeco.print(gl.getError());
-                    ++count;
-                }
-            }
-            drawFrameBuffers();
+            //         const kernelName = names[i];
+            //         const att = attachments[count % 2];
+            //         att.setFramebuffer(u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
+            //         console.log(`is fbo ready`,
+            //             gl.checkFramebufferStatus(gl.FRAMEBUFFER) == gl.FRAMEBUFFER_COMPLETE);
+            //         kernelSet.draw(kernelName);
+            //         gl.bindTexture(gl.TEXTURE_2D, att.texture);
+            //         // gl.bindTexture(gl.TEXTURE_2D, textures[count % 2]);
+            //         glErrorDeco.print(gl.getError());
+            //         ++count;
+            //     }
+            // }
+            effectFilter.draw(flags, cellPositions.length / 2);
+            // drawFrameBuffers();
+            //
 
             gl.uniform1f(flipLoc, -1);
             setFramebuffer(gl, null, u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
@@ -247,7 +305,7 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         // gl.clear(gl.COLOR_BUFFER_BIT);
         // gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-        draw(0b0000);
+        draw(0b1001);
         // const delayDraw = (x) => {
         //     draw(x);
         //     return new Promise((resolve, reject) => setTimeout(resolve, 2000));
