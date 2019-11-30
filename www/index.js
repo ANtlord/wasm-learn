@@ -1,6 +1,6 @@
 "use strict"
 import * as wasm from "wasm-game-of-life";
-import { Universe, Cell } from "wasm-game-of-life";
+import { Universe, Cell, KernelSet, dosome } from "wasm-game-of-life";
 import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
 import { GridShaderProgram } from "./grid.js";
 import { createShader, createProgram } from "./shader.js";
@@ -26,59 +26,6 @@ const bitIsSet = (n, arr) => {
     const mask = 1 << (n % 8);
     return (arr[byte] & mask) === mask;
 };
-
-class KernelSet {
-    constructor(gl, kernelLocation, kernelWeightLocation) {
-        this.gl = gl;
-        this.kernelLocation = kernelLocation;
-        this.kernelWeightLocation = kernelWeightLocation;
-        this.kernels = {
-            normal: [
-                0, 0, 0,
-                0, 1, 0,
-                0, 0, 0
-            ],
-            gaussianBlur: [
-                0.045, 0.122, 0.045,
-                0.122, 0.332, 0.122,
-                0.045, 0.122, 0.045
-            ],
-            unsharpen: [
-                -1, -1, -1,
-                -1,  9, -1,
-                -1, -1, -1
-            ],
-            emboss: [
-                -2, -1,  0,
-                -1,  1,  1,
-                0,  1,  2
-            ]
-        };
-    }
-
-    get(name) {
-        return this.kernels[name];
-    }
-
-    names() {
-        return Object.keys(this.kernels);
-    }
-
-    draw(name, count) {
-        if (count === undefined) {
-            console.error(`can't draw kernelset. count is undefined`)
-        }
-        // set the kernel
-        const val = this.get(name);
-        if (val === undefined) {
-            console.error(`unable to get kernel`, {name: name, val: val});
-        }
-        this.gl.uniform1fv(this.kernelLocation, val);
-        this.gl.uniform1f(this.kernelWeightLocation, computeKernelWeight(val));
-        // Draw the rectangle.
-        this.gl.drawArrays(this.gl.TRIANGLES, 0, count);
-    }
-}
 
 class Attachment {
     constructor(gl, image) {
@@ -186,24 +133,25 @@ class EffectFilter {
             console.log(`bindTexture`, this.glErrorDeco.string(err));
         }
 
-        const names = this.kernelSet.names();
+        // const names = this.kernelSet.names();
         let count = 0;
-        for (let i = 0; i < names.length; ++i) {
+        const len = this.kernelSet.len();
+        for (let i = 0; i < len; ++i) {
             if ((flags & (1 << i)) == 0) {
                 continue;
             }
 
-            const kernelName = names[i];
+            // const kernelName = names[i];
             const att = this.attachments[count % 2];
             att.setFramebuffer(this.canvasResolutionLoc, this.img.width, this.img.height);
-            err = this.gl.getError()
+            err = this.gl.getError();
             if (err != this.gl.NO_ERROR) {
                 console.log(`set framebuffer`, this.glErrorDeco.string(err));
             }
 
             console.log(`is fbo ready`,
                 this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) == this.gl.FRAMEBUFFER_COMPLETE);
-            this.kernelSet.draw(kernelName, drawCount);
+            this.kernelSet.draw(i, drawCount);
             this.gl.bindTexture(this.gl.TEXTURE_2D, att.texture);
             err = this.gl.getError()
             if (err != this.gl.NO_ERROR) {
@@ -262,7 +210,14 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
         const kernelLoc = gl.getUniformLocation(program, "u_kernel[0]");
         const u_kernelWeightLoc = gl.getUniformLocation(program, "u_kernelWeight");
-        const kernelSet = new KernelSet(gl, kernelLoc, u_kernelWeightLoc);
+        const kernelSet = KernelSet.new(gl, kernelLoc, u_kernelWeightLoc);
+        // const ks = KernelSet.new(gl, kernelLoc, u_kernelWeightLoc);
+        // const res = ks.get(`gaussianBlur`)
+        // if (res) {
+        //     console.log(`res`, new Float32Array(memory.buffer, res, 9))
+        // } else {
+        //     console.log(res);
+        // }
 
         const flipLoc = gl.getUniformLocation(program, "u_flip");
         gl.clear(gl.COLOR_BUFFER_BIT);

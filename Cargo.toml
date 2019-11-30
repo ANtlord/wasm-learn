@@ -40,9 +40,12 @@ wasm-bindgen-test = "0.2"
 opt-level = "s"
 
 [dependencies.web-sys]
-version = "0.3"
+version = "0.3.32"
 features = [
     "console",
+	# "WebGlShader",
+	"WebGlRenderingContext",
+	"WebGlUniformLocation",
 ]
 
 [profile.bench]
