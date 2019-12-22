@@ -1,6 +1,6 @@
 "use strict"
 import * as wasm from "wasm-game-of-life";
-import { Universe, Cell, KernelSet, dosome } from "wasm-game-of-life";
+import { Universe, Cell, KernelSet } from "wasm-game-of-life";
 import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
 import { GridShaderProgram } from "./grid.js";
 import { createShader, createProgram } from "./shader.js";
@@ -14,12 +14,6 @@ const GRID_COLOR_A = new Float32Array([0.2627, 0.298, 0.368]);
 const DEAD_COLOR = "#434C5E";
 const ALIVE_COLOR = "#CCCCFF";
 const ALIVE_COLOR_A = new Float32Array([0.8, 0.8, 1]);
-
-const norm = (x) => {
-    // const val = canvas.width / 2;
-    // return (x - val) / val;
-    return x;
-}
 
 const bitIsSet = (n, arr) => {
     const byte = Math.floor(n / 8);
@@ -42,25 +36,9 @@ class Attachment {
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.texture, 0);
     }
 
-    setFramebuffer(resolutionLocation, width, height) {
-        setFramebuffer(this.gl, this.framebuffer, resolutionLocation, width, height);
+    setFramebuffer() {
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
     }
-}
-
-function computeKernelWeight(kernel) {
-    const weight = kernel.reduce((a, b) => a + b);
-    return weight <= 0 ? 1 : weight;
-}
-
-function setFramebuffer(gl, fbo, resolutionLocation, width, height) {
-    // make this the framebuffer we are rendering to.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-
-    // Tell the shader the resolution of the framebuffer.
-    // gl.uniform2f(resolutionLocation, width, height);
-
-    // Tell webgl the viewport setting needed for framebuffer.
-    // gl.viewport(0, 0, width, height);
 }
 
 function newRectangle(x, y, w, h) {
@@ -103,8 +81,8 @@ class BasicMesh {
 }
 
 function fLetterPositions(letterLineWidth, letterHeight) {
-    const topPlane = newRectangle(letterLineWidth, 0., 200, letterLineWidth);
-    const middlePlane = newRectangle(letterLineWidth, letterHeight / 2, 150, letterLineWidth);
+    const topPlane = newRectangle(letterLineWidth, 0., letterHeight / 2, letterLineWidth);
+    const middlePlane = newRectangle(letterLineWidth, letterHeight / 2, letterHeight / 3, letterLineWidth);
     const verticalPlane = newRectangle(0., 0., letterLineWidth, letterHeight);
 
     const cellPositions = new Float32Array(topPlane.length + middlePlane.length + verticalPlane.length);
@@ -143,7 +121,7 @@ class EffectFilter {
 
             // const kernelName = names[i];
             const att = this.attachments[count % 2];
-            att.setFramebuffer(this.canvasResolutionLoc, this.img.width, this.img.height);
+            att.setFramebuffer();
             err = this.gl.getError();
             if (err != this.gl.NO_ERROR) {
                 console.log(`set framebuffer`, this.glErrorDeco.string(err));
@@ -166,8 +144,8 @@ class EffectFilter {
 function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
     const squareHeight = .1;
     const squareWidth = .5;
-    const letterLineWidth = 50.;
-    const letterHeight = 300;
+    const letterLineWidth = 20.;
+    const letterHeight = 100;
     const texWidth = 1.;
     const texHeight = 1.;
     const battlecruiserImage = new Image();
@@ -186,7 +164,7 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
         // vertex shader set u_translation
         const u_translationLoc = gl.getUniformLocation(program, "u_translation");
-        gl.uniform2fv(u_translationLoc, [100, 0]);
+        gl.uniform2fv(u_translationLoc, [150, 150]);
 
         // vertex shader set u_resolution
         const u_resolutionLoc = gl.getUniformLocation(program, "u_resolution");
@@ -197,6 +175,10 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
         const u_textureSizeLoc = gl.getUniformLocation(program, "u_textureSize");
         gl.uniform2fv(u_textureSizeLoc, [battlecruiserImage.width, battlecruiserImage.height]);
+
+        // vertex shader set u_resolution
+        const u_rotationLoc = gl.getUniformLocation(program, "u_rotation");
+        gl.uniform2fv(u_rotationLoc, [0., 1]);
 
 
         const originalTexture = createAndSetupTexture(gl);
@@ -211,13 +193,6 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         const kernelLoc = gl.getUniformLocation(program, "u_kernel[0]");
         const u_kernelWeightLoc = gl.getUniformLocation(program, "u_kernelWeight");
         const kernelSet = KernelSet.new(gl, kernelLoc, u_kernelWeightLoc);
-        // const ks = KernelSet.new(gl, kernelLoc, u_kernelWeightLoc);
-        // const res = ks.get(`gaussianBlur`)
-        // if (res) {
-        //     console.log(`res`, new Float32Array(memory.buffer, res, 9))
-        // } else {
-        //     console.log(res);
-        // }
 
         const flipLoc = gl.getUniformLocation(program, "u_flip");
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -227,32 +202,10 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
             gl.bindTexture(gl.TEXTURE_2D, originalTexture);
 
             gl.uniform1f(flipLoc, 1);
-            // const drawFrameBuffers = () => {
-            //     const names = kernelSet.names();
-            //     let count = 0;
-            //     for (let i = 0; i < names.length; ++i) {
-            //         if ((flags & (1 << i)) == 0) {
-            //             continue;
-            //         }
-
-            //         const kernelName = names[i];
-            //         const att = attachments[count % 2];
-            //         att.setFramebuffer(u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
-            //         console.log(`is fbo ready`,
-            //             gl.checkFramebufferStatus(gl.FRAMEBUFFER) == gl.FRAMEBUFFER_COMPLETE);
-            //         kernelSet.draw(kernelName);
-            //         gl.bindTexture(gl.TEXTURE_2D, att.texture);
-            //         // gl.bindTexture(gl.TEXTURE_2D, textures[count % 2]);
-            //         glErrorDeco.print(gl.getError());
-            //         ++count;
-            //     }
-            // }
             effectFilter.draw(flags, cellPositions.length / 2);
-            // drawFrameBuffers();
-            //
 
             gl.uniform1f(flipLoc, -1);
-            setFramebuffer(gl, null, u_resolutionLoc, battlecruiserImage.width, battlecruiserImage.height);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
             gl.clear(gl.COLOR_BUFFER_BIT);
             kernelSet.draw('normal', cellPositions.length / 2);
             console.log('flags', flags.toString(2));
@@ -261,19 +214,35 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         // gl.drawArrays(gl.TRIANGLES, 0, 6);
 
         draw(0b1001);
-        // const delayDraw = (x) => {
-        //     draw(x);
-        //     return new Promise((resolve, reject) => setTimeout(resolve, 2000));
-        // }
+        const delayDraw = (angle) => {
+            gl.uniform2fv(u_rotationLoc, fromAngle(angle));
+            draw(0b1001);
+            return new Promise((resolve, reject) => setTimeout(resolve, 2000));
+        }
 
-        // new Promise((resolve, reject) => setTimeout(() => resolve(), 2000))
+        const fromAngle = (degrees) => {
+            const radians = degrees * Math.PI / 180;
+            return [
+                Math.sin(radians),
+                Math.cos(radians),
+            ];
+        }
+        new Promise((resolve, reject) => setTimeout(() => resolve(), 2000))
         //     .then(() => delayDraw(0b1111))
         //     .then(() => delayDraw(0b0011))
         //     .then(() => delayDraw(0b1111))
-        //     .then(() => delayDraw(0b1001))
-        //     .then(() => delayDraw(0b0111))
-        //     .then(() => delayDraw(0b0011))
-        // ;
+             .then(() => delayDraw(0))
+             .then(() => delayDraw(10))
+             .then(() => delayDraw(20))
+             .then(() => delayDraw(30))
+             .then(() => delayDraw(40))
+             .then(() => delayDraw(50))
+             .then(() => delayDraw(60))
+             .then(() => delayDraw(70))
+             .then(() => delayDraw(80))
+             .then(() => delayDraw(90))
+        //      .then(() => delayDraw(0., -1.))
+        ;
     }
 }
 

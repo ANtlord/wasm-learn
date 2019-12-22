@@ -103,17 +103,17 @@ export class App {
         let counter = 0;
 
         for (let i = 0; i <= this.universeWidth; i++) {
-            res[counter++] = norm(i * (this.cellSize + 1) + 1);
-            res[counter++] = norm(0);
-            res[counter++] = norm(i * (this.cellSize + 1) + 1);
-            res[counter++] = norm((this.cellSize + 1) * this.universeHeight + 1);
+            res[counter++] = i * (this.cellSize + 1) + 1;
+            res[counter++] = 0;
+            res[counter++] = i * (this.cellSize + 1) + 1;
+            res[counter++] = (this.cellSize + 1) * this.universeHeight + 1;
         }
         // Horizontal lines.
         for (let j = 0; j <= this.universeHeight; j++) {
-            res[counter++] = norm(0);
-            res[counter++] = norm(j * (this.cellSize + 1) + 1);
-            res[counter++] = norm((this.cellSize + 1) * this.universeWidth + 1);
-            res[counter++] = norm(j * (this.cellSize + 1) + 1);
+            res[counter++] = 0;
+            res[counter++] = j * (this.cellSize + 1) + 1;
+            res[counter++] = (this.cellSize + 1) * this.universeWidth + 1;
+            res[counter++] = j * (this.cellSize + 1) + 1;
         }
         return res;
     }
