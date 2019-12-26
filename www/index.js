@@ -1,6 +1,6 @@
-"use strict"
+"use strict";
 import * as wasm from "wasm-game-of-life";
-import { Universe, Cell, KernelSet } from "wasm-game-of-life";
+import { Universe, Cell, KernelSet, Mat3 } from "wasm-game-of-life";
 import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
 import { GridShaderProgram } from "./grid.js";
 import { createShader, createProgram } from "./shader.js";
@@ -162,10 +162,6 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         // new BasicMesh(gl, gl.getAttribLocation(program, "a_texCoord"))
         //     .bind(newRectangle(0., 0., texWidth, texHeight));
 
-        // vertex shader set u_translation
-        const u_translationLoc = gl.getUniformLocation(program, "u_translation");
-        gl.uniform2fv(u_translationLoc, [150, 150]);
-
         // vertex shader set u_resolution
         const u_resolutionLoc = gl.getUniformLocation(program, "u_resolution");
         gl.uniform2fv(u_resolutionLoc, [gl.canvas.width, gl.canvas.height]);
@@ -176,13 +172,13 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
         const u_textureSizeLoc = gl.getUniformLocation(program, "u_textureSize");
         gl.uniform2fv(u_textureSizeLoc, [battlecruiserImage.width, battlecruiserImage.height]);
 
-        // vertex shader set u_resolution
-        const u_rotationLoc = gl.getUniformLocation(program, "u_rotation");
-        gl.uniform2fv(u_rotationLoc, [0., 1]);
-
-
         const originalTexture = createAndSetupTexture(gl);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, battlecruiserImage);
+
+        const matrix = Mat3.translation(100, 100);
+        const data = new Float32Array(memory.buffer,  matrix.raw(), 9);
+        const u_mutMatLoc = gl.getUniformLocation(program, "u_mutMat");
+        gl.uniformMatrix3fv(u_mutMatLoc, false, data);
 
         // framebuffer experiments
         const attachments = [
@@ -207,7 +203,8 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
             gl.uniform1f(flipLoc, -1);
             gl.bindFramebuffer(gl.FRAMEBUFFER, null);
             gl.clear(gl.COLOR_BUFFER_BIT);
-            kernelSet.draw('normal', cellPositions.length / 2);
+            const normal = 0;
+            kernelSet.draw(normal, cellPositions.length / 2);
             console.log('flags', flags.toString(2));
         }
         // gl.clear(gl.COLOR_BUFFER_BIT);
@@ -215,17 +212,20 @@ function loadBufferLearn(gl, vertexShader, fragmentShader, program) {
 
         draw(0b1001);
         const delayDraw = (angle) => {
-            gl.uniform2fv(u_rotationLoc, fromAngle(angle));
+            gl.uniformMatrix3fv(u_mutMatLoc, false, fromAngle(angle));
             draw(0b1001);
-            return new Promise((resolve, reject) => setTimeout(resolve, 2000));
+            return new Promise((resolve, reject) => setTimeout(resolve, 500));
         }
 
         const fromAngle = (degrees) => {
             const radians = degrees * Math.PI / 180;
-            return [
-                Math.sin(radians),
-                Math.cos(radians),
-            ];
+            const dataPtr = Mat3.translation(-50, -75)
+                .rotate(radians)
+                .translate(50, 75)
+                .dot(matrix)
+                .raw();
+            const data = new Float32Array(memory.buffer, dataPtr, 9);
+            return data;
         }
         new Promise((resolve, reject) => setTimeout(() => resolve(), 2000))
         //     .then(() => delayDraw(0b1111))

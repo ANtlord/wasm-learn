@@ -2,6 +2,14 @@ use std::ops::Deref;
 use wasm_bindgen::prelude::*;
 use std::slice;
 
+#[allow(unused_macros)]
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
+
 #[wasm_bindgen]
 pub struct Mat3 {
     data: [f32; 9],
@@ -24,6 +32,15 @@ impl Mat3 {
         data.clone_from_slice(unsafe {slice::from_raw_parts(ptr, 9)});
         Self{ data }
     }
+
+    pub fn projection(w: f32, h: f32) -> Self {
+        Self::new([
+            2. / w, 0., 0.,
+            0., -2. / h, 0.,
+            -1., 1., 1.,
+        ])
+    }
+
     pub fn identity() -> Self {
         Self::new([
             1., 0., 0.,
@@ -86,6 +103,10 @@ impl Mat3 {
     pub fn rotate(&self, angle_in_radians: f32) -> Self {
         self.dot(&Self::rotation(angle_in_radians))
     }
+
+    pub fn raw(&self) -> *const f32 {
+        self.data.as_ptr()
+    }
 }
 
 impl Deref for Mat3 {
@@ -112,15 +133,9 @@ mod tests {
         let data = [1., 2., 3., 4., 5., 6., 7., 8., 9.];
         let r = Mat3::new(data).dot(&Mat3::new([1., 2., 3., 4., 5., 6., 7., 8., 9.]));
         assert_eq!(*r, [30.0, 36.0, 42.0, 66.0, 81.0, 96.0, 102.0, 126.0, 150.0]);
-        // assert_eq!(0 % 3, 0);
-        // assert_eq!(1 % 3, 1);
-        // assert_eq!(2 % 3, 2);
-        // assert_eq!(3 % 3, 0);
 
-        // assert_eq!(0 / 3, 0);
-        // assert_eq!(1 / 3, 0);
-        // assert_eq!(2 / 3, 0);
-        // assert_eq!(3 / 3, 1);
+        let data = [1., 1., 1., 2., 2., 2., 3., 3., 3.];
+        let r = Mat3::new(data).dot(&Mat3::new([4., 4., 4., 5., 5., 5., 6., 6., 6.]));
+        assert_eq!(*r, [15.0, 15.0, 15.0, 30.0, 30.0, 30.0, 45.0, 45.0, 45.0]);
     }
-
 }
