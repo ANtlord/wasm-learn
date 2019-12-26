@@ -38,21 +38,12 @@ body {
 
         // all shaders have a main function
         void main() {
-			vec2 mutatedVector = (u_mutMat * vec3(a_position, 1)).xy;
-
-            // convert the position from pixels to 0.0 to 1.0
-            vec2 pixelsToLocalCoordinates = mutatedVector / u_resolution;
-
-            // convert from 0->1 to 0->2
-            vec2 zeroToTwo = pixelsToLocalCoordinates * 2.0;
-
-            // convert from 0->2 to -1->+1 (clip space)
-            vec2 clipSpace = zeroToTwo - 1.0;
-
-		 	// float val = pixelsToLocalCoordinates.x * abs(pixelsToLocalCoordinates.y - 1.);
-		 	v_texCoord = ((pixelsToLocalCoordinates) / (u_textureResolution / u_resolution));
-		 	// v_texCoord = a_texCoord;
-            gl_Position = vec4(clipSpace * vec2(1, u_flip), 0, 1);
+			mat3 normalizedMutMat = mat3(
+				2. / u_resolution.x, 0., 0.,
+				0., 2. / u_resolution.y, 0.,
+				-1., -1., 1.) * u_mutMat;
+			vec2 mutatedVector = (normalizedMutMat * vec3(a_position, 1)).xy;
+            gl_Position = vec4(mutatedVector * vec2(1, u_flip), 0, 1);
         }
     </script>
 
@@ -69,19 +60,19 @@ body {
 		varying vec2 v_texCoord;
 
 		void main() {
-			vec2 onePixel = vec2(1.0, 1.0) / u_textureSize;
-			vec4 colorSum =
-			   texture2D(u_image, v_texCoord + onePixel * vec2(-1, -1)) * u_kernel[0] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2( 0, -1)) * u_kernel[1] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2( 1, -1)) * u_kernel[2] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2(-1,  0)) * u_kernel[3] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2( 0,  0)) * u_kernel[4] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2( 1,  0)) * u_kernel[5] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2(-1,  1)) * u_kernel[6] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2( 0,  1)) * u_kernel[7] +
-			   texture2D(u_image, v_texCoord + onePixel * vec2( 1,  1)) * u_kernel[8] ;
-			gl_FragColor = vec4((colorSum / u_kernelWeight).rgb, 1);
-			// gl_FragColor = vec4(texture2D(u_image, v_texCoord).rgb, 1);
+			// vec2 onePixel = vec2(1.0, 1.0) / u_textureSize;
+			// vec4 colorSum =
+			//    texture2D(u_image, v_texCoord + onePixel * vec2(-1, -1)) * u_kernel[0] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2( 0, -1)) * u_kernel[1] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2( 1, -1)) * u_kernel[2] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2(-1,  0)) * u_kernel[3] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2( 0,  0)) * u_kernel[4] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2( 1,  0)) * u_kernel[5] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2(-1,  1)) * u_kernel[6] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2( 0,  1)) * u_kernel[7] +
+			//    texture2D(u_image, v_texCoord + onePixel * vec2( 1,  1)) * u_kernel[8] ;
+			// gl_FragColor = vec4((colorSum / u_kernelWeight).rgb, 1);
+			gl_FragColor = vec4(0, 1, 0, 1);
 		}
     </script>
 
